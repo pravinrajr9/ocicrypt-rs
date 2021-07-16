@@ -8,6 +8,8 @@ use std::collections::HashMap;
 
 #[cfg(feature = "keywrap-jwe")]
 pub mod jwe;
+#[cfg(feature = "keywrap-keyprovider")]
+pub mod keyprovider;
 
 /// KeyWrapper is the interface used for wrapping keys using
 /// a specific encryption technology (pgp, jwe, pkcs7, pkcs11, keyprovider)

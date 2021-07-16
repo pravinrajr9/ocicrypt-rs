@@ -3,6 +3,11 @@
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
+use std::path::Path;
+use std::{fs, io};
+use std::fmt::Error;
+
+pub const OCICRYPT_ENVVARNAME: &str = "OCICRYPT_KEYPROVIDER_CONFIG";
 
 /// DecryptConfig wraps the Parameters map that holds the decryption key
 #[derive(Debug, Default, Clone)]
@@ -10,6 +15,28 @@ pub struct DecryptConfig {
     /// map holding 'privkeys', 'x509s', 'gpg-privatekeys'
     pub param: HashMap<String, Vec<Vec<u8>>>,
 }
+
+/// Command describes the structure of command, it consist of path and args, where path defines the location of
+/// binary executable and args are passed on to the binary executable
+#[derive(Serialize, Deserialize)]
+pub struct Command {
+    path: String,
+    args: [String; 4],
+}
+
+/// KeyProviderAttrs describes the structure of key provider, it defines the way of invocation to key provider
+#[derive(Serialize, Deserialize)]
+pub struct KeyProviderAttrs {
+    pub cmd: Command,
+    pub grpc: String,
+}
+
+/// OcicryptConfig represents the format of an ocicrypt_provider.conf config file
+#[derive(Serialize, Deserialize)]
+pub struct OcicryptConfig {
+    key_providers: HashMap<String, KeyProviderAttrs>
+}
+
 
 impl DecryptConfig {
     /// Update DecryptConfig param with key and value
@@ -187,6 +214,48 @@ impl EncryptConfig {
 pub struct CryptoConfig {
     pub encrypt_config: Option<EncryptConfig>,
     pub decrypt_config: Option<DecryptConfig>,
+}
+
+/// parseConfigFile parses a configuration file; it is not an error if the configuration file does
+/// not exist, so no error is returned.
+fn parse_config_file(filename: String) -> Result<OcicryptConfig> {
+    /// a non-existent config file is not an error
+    if !Path::new(name).exists() {
+        None;
+    }
+
+    let contents = match fs::read(filename) {
+        Ok(x) => x,
+        Err(x) => return Err(anyhow!("Error reading file {:?}", x.to_string())),
+    };
+
+    let mut oci_config: OcicryptConfig;
+    oci_config = match serde_json::from_reader(contents) {
+        Ok(x) => x,
+        Err(x) => return Err(x),
+    };
+
+    return Ok(oci_config);
+}
+
+/// get_configuration tries to read the configuration file at the following locations
+/// ${OCICRYPT_KEYPROVIDER_CONFIG} == "/etc/ocicrypt_keyprovider.json"
+/// If no configuration file could be found or read a null pointer is returned
+fn get_configuration() -> Result<OcicryptConfig> {
+    let mut ic: OcicryptConfig = OcicryptConfig { key_providers: Default::default() };
+    let filename = match std::env::var(OCICRYPT_ENVVARNAME) {
+        Ok(x) => x,
+        Err(x) => Err(anyhow!("Error while parsing keyprovider config file {:?}", x.to_string())),
+    };
+    if filename.len() > 0 {
+        ic = match parse_config_file(filename) {
+            Ok(x) => x,
+            Err(x) => return Err(anyhow!("Error while parsing keyprovider config file {:?}", filename)),
+        }
+    } else {
+        None;
+    }
+    return Ok(ic);
 }
 
 #[cfg(test)]
