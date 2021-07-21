@@ -3,9 +3,8 @@
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use std::path::Path;
-use std::{fs, io};
-use std::fmt::Error;
+use std::fs::File;
+use std::io::BufReader;
 
 pub const OCICRYPT_ENVVARNAME: &str = "OCICRYPT_KEYPROVIDER_CONFIG";
 
@@ -219,23 +218,18 @@ pub struct CryptoConfig {
 /// parseConfigFile parses a configuration file; it is not an error if the configuration file does
 /// not exist, so no error is returned.
 fn parse_config_file(filename: String) -> Result<OcicryptConfig> {
-    /// a non-existent config file is not an error
-    if !Path::new(name).exists() {
-        None;
-    }
 
-    let contents = match fs::read(filename) {
+    let file = File::open(filename)?;
+    let reader = BufReader::new(file);
+
+
+    let oci_config: OcicryptConfig;
+    oci_config = match serde_json::from_reader(reader) {
         Ok(x) => x,
         Err(x) => return Err(anyhow!("Error reading file {:?}", x.to_string())),
     };
 
-    let mut oci_config: OcicryptConfig;
-    oci_config = match serde_json::from_reader(contents) {
-        Ok(x) => x,
-        Err(x) => return Err(x),
-    };
-
-    return Ok(oci_config);
+    Ok(oci_config)
 }
 
 /// get_configuration tries to read the configuration file at the following locations
@@ -243,19 +237,14 @@ fn parse_config_file(filename: String) -> Result<OcicryptConfig> {
 /// If no configuration file could be found or read a null pointer is returned
 fn get_configuration() -> Result<OcicryptConfig> {
     let mut ic: OcicryptConfig = OcicryptConfig { key_providers: Default::default() };
-    let filename = match std::env::var(OCICRYPT_ENVVARNAME) {
-        Ok(x) => x,
-        Err(x) => Err(anyhow!("Error while parsing keyprovider config file {:?}", x.to_string())),
-    };
+    let filename = std::env::var(OCICRYPT_ENVVARNAME).unwrap();
     if filename.len() > 0 {
         ic = match parse_config_file(filename) {
             Ok(x) => x,
             Err(x) => return Err(anyhow!("Error while parsing keyprovider config file {:?}", filename)),
         }
-    } else {
-        None;
     }
-    return Ok(ic);
+    Ok(ic)
 }
 
 #[cfg(test)]
