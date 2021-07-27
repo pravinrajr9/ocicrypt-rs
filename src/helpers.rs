@@ -4,6 +4,7 @@
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::fs::File;
+use std::io::Read;
 use std::os::unix::io::FromRawFd;
 
 use crate::config::{CryptoConfig, DecryptConfig, EncryptConfig};

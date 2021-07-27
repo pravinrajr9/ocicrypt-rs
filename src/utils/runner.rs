@@ -1,5 +1,5 @@
-use crate::utils::{runner, CommandExecuter};
-use bincode::Error;
+use crate::utils::CommandExecuter;
+use std::io::Write;
 use std::process::{Command, Stdio};
 
 #[derive(Debug)]
@@ -7,17 +7,25 @@ pub struct Runner {}
 
 impl CommandExecuter for Runner {
     /// ExecuteCommand is used to execute a linux command line command and return the output of the command with an error if it exists.
-    fn exec(&self, cmd: String, args: Vec<String>, input: &[u8]) -> Result<Vec<u8>, Error> {
-        let output = match Command::new(cmd)
-            .stdin(input)
+    fn exec(&self, cmd: String, args: &Vec<String>, input: Vec<u8>) -> std::io::Result<Vec<u8>> {
+        let mut child = Command::new(cmd)
             .args(args)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .output()
-        {
-            Ok(x) => x.stdout,
-            Err(x) => return Err(anyhow!("error while running command: {:?} ", cmd)),
-        };
+            .spawn()?;
 
-        Ok(output)
+        let mut stdin = child.stdin.take().expect("Failed to open stdin");
+
+        let mut input_copy = input.to_vec();
+
+        std::thread::spawn(move || {
+            stdin
+                .write_all(input_copy.as_mut_slice())
+                .expect("Failed to write to stdin");
+        });
+
+        let output = child.wait_with_output().expect("Failed to read stdout");
+
+        Ok(output.stdout)
     }
 }
