@@ -102,3 +102,161 @@ pub mod key_provider_service_client {
         }
     }
 }
+#[doc = r" Generated server implementations."]
+pub mod key_provider_service_server {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::*;
+    #[doc = "Generated trait containing gRPC methods that should be implemented for use with KeyProviderServiceServer."]
+    #[async_trait]
+    pub trait KeyProviderService: Send + Sync + 'static {
+        async fn wrap_key(
+            &self,
+            request: tonic::Request<super::KeyProviderKeyWrapProtocolInput>,
+        ) -> Result<tonic::Response<super::KeyProviderKeyWrapProtocolOutput>, tonic::Status>;
+        async fn un_wrap_key(
+            &self,
+            request: tonic::Request<super::KeyProviderKeyWrapProtocolInput>,
+        ) -> Result<tonic::Response<super::KeyProviderKeyWrapProtocolOutput>, tonic::Status>;
+    }
+    #[derive(Debug)]
+    pub struct KeyProviderServiceServer<T: KeyProviderService> {
+        inner: _Inner<T>,
+        accept_compression_encodings: (),
+        send_compression_encodings: (),
+    }
+    struct _Inner<T>(Arc<T>);
+    impl<T: KeyProviderService> KeyProviderServiceServer<T> {
+        pub fn new(inner: T) -> Self {
+            let inner = Arc::new(inner);
+            let inner = _Inner(inner);
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+            }
+        }
+        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        where
+            F: FnMut(tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status>,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for KeyProviderServiceServer<T>
+    where
+        T: KeyProviderService,
+        B: Body + Send + Sync + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = Never;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/keyprovider.KeyProviderService/WrapKey" => {
+                    #[allow(non_camel_case_types)]
+                    struct WrapKeySvc<T: KeyProviderService>(pub Arc<T>);
+                    impl<T: KeyProviderService>
+                        tonic::server::UnaryService<super::KeyProviderKeyWrapProtocolInput>
+                        for WrapKeySvc<T>
+                    {
+                        type Response = super::KeyProviderKeyWrapProtocolOutput;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::KeyProviderKeyWrapProtocolInput>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).wrap_key(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = WrapKeySvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
+                            accept_compression_encodings,
+                            send_compression_encodings,
+                        );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/keyprovider.KeyProviderService/UnWrapKey" => {
+                    #[allow(non_camel_case_types)]
+                    struct UnWrapKeySvc<T: KeyProviderService>(pub Arc<T>);
+                    impl<T: KeyProviderService>
+                        tonic::server::UnaryService<super::KeyProviderKeyWrapProtocolInput>
+                        for UnWrapKeySvc<T>
+                    {
+                        type Response = super::KeyProviderKeyWrapProtocolOutput;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::KeyProviderKeyWrapProtocolInput>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).un_wrap_key(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = UnWrapKeySvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
+                            accept_compression_encodings,
+                            send_compression_encodings,
+                        );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => Box::pin(async move {
+                    Ok(http::Response::builder()
+                        .status(200)
+                        .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
+                        .body(empty_body())
+                        .unwrap())
+                }),
+            }
+        }
+    }
+    impl<T: KeyProviderService> Clone for KeyProviderServiceServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+            }
+        }
+    }
+    impl<T: KeyProviderService> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: KeyProviderService> tonic::transport::NamedService for KeyProviderServiceServer<T> {
+        const NAME: &'static str = "keyprovider.KeyProviderService";
+    }
+}

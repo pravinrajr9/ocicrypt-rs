@@ -20,8 +20,9 @@ serde_derive = "1.0"
 serde_json = "1.0"
 bincode = "1.2.1"
 tonic = "0.5.0"
-protobuf = "~2"
 prost = "0.8.0"
+prost-types = "0.7.0"
+#init = "0.2.0"
 
 [build-dependencies]
 protoc-grpcio = "3.0.0"
