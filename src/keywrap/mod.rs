@@ -22,7 +22,7 @@ pub trait KeyWrapper {
     fn unwrap_keys(&self, dc: &DecryptConfig, annotation: &[u8]) -> Result<Vec<u8>>;
 
     /// return the keywraper annotation id.
-    fn annotation_id(&self) -> &str;
+    fn annotation_id(&self) -> String;
 
     /// no_possible_keys returns true if there is no possibility of performing
     /// decryption for parameters provided.
