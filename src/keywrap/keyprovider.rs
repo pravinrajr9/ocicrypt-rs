@@ -13,7 +13,10 @@ pub struct KeyProviderKeyWrapper {
     attrs: KeyProviderAttrs,
 }
 
-#[derive(Serialize, Deserialize)]
+pub const OP_KEY_WRAP: &str = "keywrap";
+pub const OP_KEY_UNWRAP: &str = "keyunwrap";
+
+#[derive(Serialize, Deserialize, Debug)]
 /// KeyProviderKeyWrapProtocolInput defines the input to the key provider binary or grpc method.
 pub struct KeyProviderKeyWrapProtocolInput {
     // op is either "keywrap" or "keyunwrap"
@@ -35,13 +38,13 @@ pub struct KeyProviderKeyWrapProtocolOutput {
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyWrapParams {
-    pub ec: * EncryptConfig,
+    pub ec: *EncryptConfig,
     optsdata: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyUnwrapParams {
-    pub dc: * DecryptConfig,
+    pub dc: *DecryptConfig,
     annotation: Vec<u8>,
 }
 
@@ -60,7 +63,7 @@ impl KeyWrapper for KeyProviderKeyWrapper {
     fn wrap_keys(&self, enc_config: &EncryptConfig, opts_data: &[u8]) -> Result<Vec<u8>, Error> {
         let protocol_output;
         let input = KeyProviderKeyWrapProtocolInput {
-            op: "keywrap".to_string(),
+            op: OP_KEY_WRAP.to_string(),
             keywrapparams: KeyWrapParams { ec: enc_config, optsdata: Vec::from(opts_data) },
             keyunwrapparams: KeyUnwrapParams { dc: Default::default(), annotation: vec![] },
         };
@@ -76,8 +79,12 @@ impl KeyWrapper for KeyProviderKeyWrapper {
                     Err(x) => return Err(anyhow!("Error while retrieving keyprovider protocol command output"))
                 };
                 Ok(protocol_output.keywrapresults.annotation)
-            } else if kw.attrs.Grpc != "" {
-                ///TODO: need to implement
+            } else if &self.attrs.grpc != "" {
+                protocol_output = match get_provider_grpc_output(serialized_input, *self.attrs.grpc, OP_KEY_WRAP) {
+                    Ok(x) => x,
+                    Err(x) => return Err(anyhow!("Error while retrieving keyprovider protocol command output"))
+                };
+                Ok(protocol_output.keywrapresults.annotation)
             } else {
                 Err(anyhow!("Unsupported keyprovider invocation. Supported invocation methods are grpc and cmd"))
             }
@@ -102,8 +109,12 @@ impl KeyWrapper for KeyProviderKeyWrapper {
                 Err(x) => return Err(anyhow!("Error while retrieving keyprovider protocol command output"))
             };
             Ok(protocol_output.keyunwrapresults.optsdata)
-        } else if kw.attrs.Grpc != "" {
-            ///TODO: need to implement
+        } else if &self.attrs.grpc != "" {
+            protocol_output = match get_provider_grpc_output(serialized_input, *self.attrs.grpc, OP_KEY_UNWRAP) {
+                Ok(x) => x,
+                Err(x) => return Err(anyhow!("Error while retrieving keyprovider protocol command output"))
+            };
+            Ok(protocol_output.keyunwrapresults.optsdata)
         } else {
             Err(anyhow!("Unsupported keyprovider invocation. Supported invocation methods are grpc and cmd"))
         }
@@ -117,6 +128,10 @@ impl KeyWrapper for KeyProviderKeyWrapper {
     fn annotation_id(&self) -> &str {
         "org.opencontainers.image.enc.keys.provider." + kw.provider
     }
+}
+
+fn get_provider_grpc_output(p0: Result<Vec<u8>, E>, p1: Box<str>, p2: &str) {
+    unimplemented!()
 }
 
 fn get_provider_command_output(input: Vec<u8>, cmd: Command) -> Result<KeyProviderKeyWrapProtocolOutput, E> {
