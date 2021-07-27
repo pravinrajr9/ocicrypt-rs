@@ -1,10 +1,17 @@
 use crate::keywrap::KeyWrapper;
 use crate::utils::runner;
+use crate::utils::keyprovider as keyproviderpb;
 use std::collections::hash_map::RandomState;
 use crate::config::{DecryptConfig, EncryptConfig, KeyProviderAttrs, Command};
 use std::collections::HashMap;
 use std::ptr::null;
 use std::fmt::Error;
+use crate::utils;
+
+pub mod keyprovider {
+    tonic::include_proto!("keyprovider");
+}
+
 
 /// A KeyProvider keywrapper
 #[derive(Debug)]
@@ -80,7 +87,7 @@ impl KeyWrapper for KeyProviderKeyWrapper {
                 };
                 Ok(protocol_output.keywrapresults.annotation)
             } else if &self.attrs.grpc != "" {
-                protocol_output = match get_provider_grpc_output(serialized_input, *self.attrs.grpc, OP_KEY_WRAP) {
+                protocol_output = match get_provider_grpc_output(serialized_input, self.attrs.grpc.to_string(), OP_KEY_WRAP) {
                     Ok(x) => x,
                     Err(x) => return Err(anyhow!("Error while retrieving keyprovider protocol command output"))
                 };
@@ -110,7 +117,7 @@ impl KeyWrapper for KeyProviderKeyWrapper {
             };
             Ok(protocol_output.keyunwrapresults.optsdata)
         } else if &self.attrs.grpc != "" {
-            protocol_output = match get_provider_grpc_output(serialized_input, *self.attrs.grpc, OP_KEY_UNWRAP) {
+            protocol_output = match get_provider_grpc_output(serialized_input, self.attrs.grpc.to_string(), OP_KEY_UNWRAP) {
                 Ok(x) => x,
                 Err(x) => return Err(anyhow!("Error while retrieving keyprovider protocol command output"))
             };
@@ -130,8 +137,32 @@ impl KeyWrapper for KeyProviderKeyWrapper {
     }
 }
 
-fn get_provider_grpc_output(p0: Result<Vec<u8>, E>, p1: Box<str>, p2: &str) {
-    unimplemented!()
+async fn get_provider_grpc_output(input: Vec<u8>, connection_string: String, operation: &str) -> Result<(), Box<dyn std::error::Error>>  {
+    let protocol_output = KeyProviderKeyWrapProtocolOutput;
+
+    // create a channel ie connection to server
+    let channel = tonic::transport::Channel::from_static(&connection_string)
+        .connect()
+        .await?;
+
+    let mut client = keyproviderpb::key_provider_service_client::KeyProviderServiceClient::new(channel);
+    let request = tonic::Request::new(keyproviderpb::KeyProviderKeyWrapProtocolInput{ key_provider_key_wrap_protocol_input: input });
+    if operation == OP_KEY_WRAP{
+        let grpc_output = client.wrap_key(request).await?.into_inner();
+        let protocol_ouput = match bincode::deserialize(&grpc_output.key_provider_key_wrap_protocol_output) {
+            Ok(x) => x,
+            Err(x) => return Err(anyhow!("Error while unmarshalling binary executable command output",))
+        };
+        protocol_ouput
+    } else if operation == OP_KEY_UNWRAP{
+        grpc_output = client.un_wrap_key(request);
+        let protocol_output = match bincode::deserialize(&grpc_output.key_provider_key_wrap_protocol_output) {
+            Ok(x) => x,
+            Err(x) => return Err(anyhow!("Error while unmarshalling binary executable command output",))
+        };
+        protocol_output
+    }
+    return Err(anyhow!("Protocol not supported"))
 }
 
 fn get_provider_command_output(input: Vec<u8>, cmd: Command) -> Result<KeyProviderKeyWrapProtocolOutput, E> {

@@ -6,6 +6,9 @@ use anyhow::Error;
 #[cfg(feature = "utils-runner")]
 pub mod runner;
 
+#[cfg(feature = "utils-keyprovider")]
+pub mod keyprovider;
+
 /// first argument is the command, like cat or echo,
 /// the second is the list of args to pass to it
 #[allow(unused_variables)]

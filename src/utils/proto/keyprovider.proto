@@ -1,7 +1,6 @@
 syntax = "proto3";
 
 package keyprovider;
-option go_package = "keyprovider";
 
 message keyProviderKeyWrapProtocolInput {
     bytes KeyProviderKeyWrapProtocolInput = 1;
