@@ -26,8 +26,8 @@ pub struct Command {
 /// KeyProviderAttrs describes the structure of key provider, it defines the way of invocation to key provider
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct KeyProviderAttrs {
-    pub cmd: Option<Command>,
-    pub grpc: Option<String>,
+     pub cmd: core::option::Option<Command>,
+    pub grpc: core::option::Option<String>,
 }
 
 /// OcicryptConfig represents the format of an ocicrypt_provider.conf config file
