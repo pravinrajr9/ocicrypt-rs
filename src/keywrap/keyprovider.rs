@@ -9,12 +9,7 @@ use crate::{utils};
 use tokio;
 use crate::utils::{CommandExecuter};
 use tokio::runtime::Runtime;
-
-/*
-pub mod keyprovider {
-    tonic::include_proto!("keyprovider");
-}
-*/
+use core::option::Option;
 
 use core::fmt::Debug;
 use tonic::codegen::http::Uri;
@@ -32,7 +27,7 @@ impl Debug for dyn CommandExecuter {
 pub struct KeyProviderKeyWrapper {
     pub provider: String,
     pub attrs: KeyProviderAttrs,
-    pub runner: Box<dyn CommandExecuter>,
+    pub runner: Option<Box<dyn CommandExecuter>>,
 }
 
 pub const OP_KEY_WRAP: &str = "keywrap";
@@ -82,10 +77,10 @@ pub struct KeyWrapResults {
 }
 
 pub fn new_key_wrapper(p: String, kp_conf: KeyProviderAttrs, runner: Option<Box<dyn utils::CommandExecuter>>) -> KeyProviderKeyWrapper {
-    let kp = KeyProviderKeyWrapper{
+    let kp = KeyProviderKeyWrapper {
         provider: p,
         attrs: kp_conf,
-        runner: runner.unwrap(),
+        runner: runner,
     };
     kp
 }
@@ -103,14 +98,14 @@ impl KeyWrapper for KeyProviderKeyWrapper {
         let serialized_input = bincode::serialize(&input).unwrap();
 
         if enc_config.param.contains_key(&self.provider.to_string()) {
-            if self.attrs.cmd.as_ref().unwrap().path != "" {
-                protocol_output = get_provider_command_output(serialized_input, &self.attrs.cmd, &self.runner).unwrap()
-            } else if self.attrs.grpc.as_ref().unwrap()!= "" {
+            if self.attrs.cmd.as_ref().is_some() {
+                protocol_output = get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()).unwrap()
+            } else if self.attrs.grpc.as_ref().is_some() {
                 let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_WRAP.to_string()));
                 protocol_output = rt.unwrap()
             }
         }
-        let key_wrap_results = match protocol_output.keywrapresults{
+        let key_wrap_results = match protocol_output.keywrapresults {
             Some(x) => x,
             None => return Err(anyhow!("protocol output is empty"))
         };
@@ -127,9 +122,9 @@ impl KeyWrapper for KeyProviderKeyWrapper {
         };
         let serialized_input = bincode::serialize(&input).unwrap();
 
-        if self.attrs.cmd.as_ref().unwrap().path != "" {
-            protocol_output = get_provider_command_output(serialized_input, &self.attrs.cmd, &self.runner).unwrap();
-        } else if self.attrs.grpc.as_ref().unwrap() != "" {
+        if self.attrs.cmd.as_ref().is_some() {
+            protocol_output = get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()).unwrap();
+        } else if self.attrs.grpc.as_ref().is_some() {
             let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_UNWRAP.to_string()));
             protocol_output = rt.unwrap();
         }
@@ -138,7 +133,7 @@ impl KeyWrapper for KeyProviderKeyWrapper {
 
 
     fn annotation_id(&self) -> String {
-        format!("{}{}","org.opencontainers.image.enc.keys.provider.","anirgj")
+        format!("{}{}", "org.opencontainers.image.enc.keys.provider.", "anirgj")
     }
 
     fn no_possible_keys(&self, _dc_param: &HashMap<String, Vec<Vec<u8>>, RandomState>) -> bool {
@@ -187,12 +182,14 @@ mod tests {
     use tonic::{transport::Server, Request, Status, transport};
     use aes_gcm::aead::{Aead, NewAead};
     use aes_gcm::{Aes256Gcm, Key, Nonce};
-    use serde_json::from_slice;
     use crate::keywrap::keyprovider::{KeyProviderKeyWrapProtocolOutput, KeyWrapResults, KeyUnwrapResults, KeyProviderKeyWrapProtocolInput, new_key_wrapper};
-    use std::{env, fs, thread};
-    use crate::config::{EncryptConfig, DecryptConfig, OcicryptConfig};
+    use std::{env, fs};
+    use crate::config::{EncryptConfig, DecryptConfig};
     use crate::utils::keyprovider::key_provider_service_server::KeyProviderService;
+    use tokio::sync::mpsc;
     use tokio::runtime::Runtime;
+    use std::time::Duration;
+    use std::thread::sleep;
 
     ///Test runner which mocks binary executable for key wrapping and unwrapping
     #[derive(Clone, Copy)]
@@ -214,18 +211,40 @@ mod tests {
     #[derive(Default)]
     struct TestServer {}
 
+    /*
     async fn start_server() -> Result<(), transport::Error> {
+
         println!("server started");
-        let addr: SocketAddr = "127.0.0.1:50051".parse().unwrap();
+        let addr: SocketAddr = "127.0.0.1:8990".parse().unwrap();
         let server = TestServer::default();
-        let server1 = Server::builder()
+        Server::builder()
             .add_service(KeyProviderServiceServer::new(server))
             .serve(addr)
             .await?;
-        println!("server started2");
         Ok(())
     }
+*/
+ //   #[tokio::test]
+    async fn start_server(){
+        let (tx, mut rx) = mpsc::unbounded_channel();
 
+        println!("server started");
+        let addr: SocketAddr = "127.0.0.1:8990".parse().unwrap();
+        let server = TestServer::default();
+        let serve = Server::builder()
+            .add_service(KeyProviderServiceServer::new(server))
+            .serve(addr);
+
+        tokio::spawn(async move {
+            if let Err(e) = serve.await {
+                eprintln!("Error = {:?}", e);
+            }
+
+            tx.send(()).unwrap();
+        });
+
+        rx.recv().await;
+   }
 
     #[tonic::async_trait]
     impl KeyProviderService for TestServer {
@@ -357,8 +376,6 @@ mod tests {
 
         fs::write(test_conf_path, config_file1_data).expect("Unable to write file");
 
-        let test : OcicryptConfig = serde_json::from_str(config_file1_data).unwrap();
-
         let opts_data = b"symmetric_key";
 
         let kp = config::get_configuration().unwrap();
@@ -368,7 +385,7 @@ mod tests {
         let mut ec = EncryptConfig::default();
         let mut dc = DecryptConfig::default();
         let mut ec_params = vec![];
-        let param  = "keyprovider".to_string().into_bytes();
+        let param = "keyprovider".to_string().into_bytes();
         ec_params.push(param.clone());
 
         assert!(ec.encrypt_with_key_provider(ec_params).is_ok());
@@ -391,35 +408,51 @@ mod tests {
         let key_wrap_output_result = key_wrapper.unwrap_keys(&dc, key_wrap_output_result.unwrap().as_ref());
         let unwrapped_key: &[u8] = &key_wrap_output_result.unwrap();
         assert_eq!(opts_data, unwrapped_key);
-        fs::remove_file(test_conf_path);
+        fs::remove_file(test_conf_path).expect("unable to remove config test file ");
+    }
+
+
+    fn function_that_spawns() {
+        // Had we not used `rt.enter` below, this would panic.
+        tokio::spawn(async move {
+            let (tx, mut rx) = mpsc::unbounded_channel();
+
+            println!("server started");
+            let addr: SocketAddr = "127.0.0.1:8990".parse().unwrap();
+            let server = TestServer::default();
+            let serve = Server::builder()
+                .add_service(KeyProviderServiceServer::new(server))
+                .serve(addr);
+
+            tokio::spawn(async move {
+                if let Err(e) = serve.await {
+                    eprintln!("Error = {:?}", e);
+                }
+
+                tx.send(()).unwrap();
+            });
+
+            rx.recv().await;
+        });
     }
 
     #[test]
     fn test_key_provider_grpc_success() {
-        let rt = Runtime::new().unwrap();
-        rt.spawn(async {
-            start_server().await
-        });
 
-       // start_server();
-        //thread::spawn( {
-         //   rt.unwrap()
-        //});
+       let rt1 = Runtime::new().unwrap();
+        let _guard = rt1.enter();
+        function_that_spawns();
 
-       // rt.clone().expect("okokg");
-       println!("server started");
-        //let a = rt.unwrap();
-
-
+        sleep(Duration::from_secs(5));
         let test_conf_path = "config.json";
         env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", test_conf_path);
 
         let config_file1_data = "{\"key-providers\": \
                                            {\"keyprovider\": {
-                                                \"grpc\": \"127.0.0.1:50051\"
+                                                \"grpc\": \"tcp://127.0.0.1:8990\"
                                              },\
                                             \"keyprovider1\": {
-                                                \"grpc\": \"localhost:32223\"
+                                                \"grpc\": \"tcp://localhost:32223\"
                                              }\
                                           }\
                                      }";
@@ -431,7 +464,7 @@ mod tests {
         let mut dc = DecryptConfig::default();
 
         let mut ec_params = vec![];
-        let param  = "keyprovider".to_string().into_bytes();
+        let param = "keyprovider".to_string().into_bytes();
         ec_params.push(param.clone());
 
         let oc_config = config::get_configuration().unwrap();
@@ -447,12 +480,14 @@ mod tests {
 
         assert!(dc.decrypt_with_key_provider(dc_params).is_ok());
 
-        let jsonString: &[u8] = &key_wrap_output_result.unwrap();
+        let json_string: &[u8] = &key_wrap_output_result.unwrap();
 
-        let key_wrap_output_result = key_wrapper.unwrap_keys(&dc, jsonString);
+        let key_wrap_output_result = key_wrapper.unwrap_keys(&dc, json_string);
         let unwrapped_key: &[u8] = &key_wrap_output_result.unwrap();
         assert_eq!(opts_data, unwrapped_key);
-        fs::remove_file(test_conf_path);
-        rt.shutdown_background();
+        fs::remove_file(test_conf_path).expect("unable to remove config test file ");
+
+       rt1.shutdown_background();
+
     }
 }
