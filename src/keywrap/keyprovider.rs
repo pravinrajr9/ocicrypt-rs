@@ -1,3 +1,6 @@
+// Copyright The ocicrypt Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use anyhow::{anyhow, Result};
 use crate::keywrap::KeyWrapper;
 use crate::utils::keyprovider as keyproviderpb;
@@ -36,11 +39,11 @@ pub const OP_KEY_UNWRAP: &str = "keyunwrap";
 /// KeyProviderKeyWrapProtocolInput defines the input to the key provider binary or grpc method.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyProviderKeyWrapProtocolInput {
-    // op is either "keywrap" or "keyunwrap"
+    /// op is either "keywrap" or "keyunwrap"
     op: String,
-    // keywrapparams encodes the arguments to key wrap if operation is set to wrap
+    /// keywrapparams encodes the arguments to key wrap if operation is set to wrap
     keywrapparams: Option<KeyWrapParams>,
-    // keyunwrapparams encodes the arguments to key unwrap if operation is set to unwrap
+    /// keyunwrapparams encodes the arguments to key unwrap if operation is set to unwrap
     keyunwrapparams: Option<KeyUnwrapParams>,
 }
 
@@ -48,9 +51,9 @@ pub struct KeyProviderKeyWrapProtocolInput {
 /// KeyProviderKeyWrapProtocolOutput defines the output of the key provider binary or grpc method.
 #[derive(Serialize, Deserialize)]
 pub struct KeyProviderKeyWrapProtocolOutput {
-    // keywrapresults encodes the results to key wrap if operation is to keywrap
+    /// keywrapresults encodes the results to key wrap if operation is to keywrap
     keywrapresults: Option<KeyWrapResults>,
-    // keyunwrapresults encodes the result to key unwrap if operation is to keyunwrap
+    /// keyunwrapresults encodes the result to key unwrap if operation is to keyunwrap
     keyunwrapresults: Option<KeyUnwrapResults>,
 }
 

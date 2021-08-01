@@ -1,3 +1,6 @@
+// Copyright The ocicrypt Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
