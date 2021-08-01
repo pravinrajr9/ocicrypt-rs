@@ -45,12 +45,12 @@ pub struct KeyProviderKeyWrapProtocolInput {
 }
 
 
-// KeyProviderKeyWrapProtocolOutput defines the output of the key provider binary or grpc method.
+/// KeyProviderKeyWrapProtocolOutput defines the output of the key provider binary or grpc method.
 #[derive(Serialize, Deserialize)]
 pub struct KeyProviderKeyWrapProtocolOutput {
-    // keywrapresults encodes the results to key wrap if operation is to wrap
+    // keywrapresults encodes the results to key wrap if operation is to keywrap
     keywrapresults: Option<KeyWrapResults>,
-    // keyunwrapresults encodes the result to key unwrap if operation is to unwrap
+    // keyunwrapresults encodes the result to key unwrap if operation is to keyunwrap
     keyunwrapresults: Option<KeyUnwrapResults>,
 }
 
@@ -76,17 +76,20 @@ pub struct KeyWrapResults {
     annotation: Vec<u8>
 }
 
-pub fn new_key_wrapper(p: String, kp_conf: KeyProviderAttrs, runner: Option<Box<dyn utils::CommandExecuter>>) -> KeyProviderKeyWrapper {
+/// new_key_wrapper returns a KeyProviderKeyWrapper
+pub fn new_key_wrapper(provider: String, attrs: KeyProviderAttrs, runner: Option<Box<dyn utils::CommandExecuter>>) -> KeyProviderKeyWrapper {
     let kp = KeyProviderKeyWrapper {
-        provider: p,
-        attrs: kp_conf,
-        runner: runner,
+        provider,
+        attrs,
+        runner,
     };
+
     kp
 }
 
 impl KeyWrapper for KeyProviderKeyWrapper {
-    // NewKeyWrapper returns a new key wrapping interface using keyprovider
+    /// WrapKeys calls appropriate binary-executable or grpc/ttrpc server for wrapping the session key for recipients and gets encrypted optsData, which
+    /// describe the symmetric key used for encrypting the layer
     fn wrap_keys(&self, enc_config: &EncryptConfig, opts_data: &[u8]) -> Result<Vec<u8>> {
         let mut protocol_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
         let key_wrap_params = KeyWrapParams { ec: Some(enc_config.clone()), optsdata: Vec::from(opts_data) };
@@ -107,11 +110,14 @@ impl KeyWrapper for KeyProviderKeyWrapper {
         }
         let key_wrap_results = match protocol_output.keywrapresults {
             Some(x) => x,
-            None => return Err(anyhow!("protocol output is empty"))
+            None => return Err(anyhow!("key-provider: {:?} keywrap operation results are empty", self.provider))
         };
+
         Ok(key_wrap_results.annotation)
     }
 
+    /// UnwrapKey calls appropriate binary-executable or grpc/ttrpc server for unwrapping the session key based on the protocol given in annotation for recipients and gets decrypted optsData,
+    /// which describe the symmetric key used for decrypting the layer
     fn unwrap_keys(&self, dc_config: &DecryptConfig, json_string: &[u8]) -> Result<Vec<u8>> {
         let mut protocol_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
         let key_unwrap_params = KeyUnwrapParams { dc: Some(dc_config.clone()), annotation: Vec::from(json_string) };
@@ -128,12 +134,17 @@ impl KeyWrapper for KeyProviderKeyWrapper {
             let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_UNWRAP.to_string()));
             protocol_output = rt.unwrap();
         }
-        Ok(protocol_output.keyunwrapresults.unwrap().optsdata)
+        let key_unwrap_results = match protocol_output.keyunwrapresults {
+            Some(x) => x,
+            None => return Err(anyhow!("keyprovider: {:?} keyunwrap operation results are empty",self.provider))
+        };
+
+        Ok(key_unwrap_results.optsdata)
     }
 
 
     fn annotation_id(&self) -> String {
-        format!("{}{}", "org.opencontainers.image.enc.keys.provider.", "anirgj")
+        format!("{}{}", "org.opencontainers.image.enc.keys.provider.", self.provider)
     }
 
     fn no_possible_keys(&self, _dc_param: &HashMap<String, Vec<Vec<u8>>, RandomState>) -> bool {
@@ -163,10 +174,9 @@ async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String)
 
 fn get_provider_command_output(input: Vec<u8>, cmd: &Option<Command>, runner: &Box<dyn utils::CommandExecuter>) -> Result<KeyProviderKeyWrapProtocolOutput> {
     let resp_bytes: Vec<u8>;
-    // Convert interface to command structure
     resp_bytes = runner.exec(cmd.as_ref().unwrap().path.to_string(), cmd.as_ref().unwrap().args.as_ref().unwrap(), input).unwrap();
-
     let protocol_output = bincode::deserialize(&resp_bytes).unwrap();
+
     Ok(protocol_output)
 }
 
@@ -179,7 +189,7 @@ mod tests {
     use crate::{config};
     use std::net::SocketAddr;
     use tonic;
-    use tonic::{transport::Server, Request, Status, transport};
+    use tonic::{transport::Server, Request};
     use aes_gcm::aead::{Aead, NewAead};
     use aes_gcm::{Aes256Gcm, Key, Nonce};
     use crate::keywrap::keyprovider::{KeyProviderKeyWrapProtocolOutput, KeyWrapResults, KeyUnwrapResults, KeyProviderKeyWrapProtocolInput, new_key_wrapper};
@@ -198,7 +208,7 @@ mod tests {
     static mut ENC_KEY: &[u8; 32] = b"passphrasewhichneedstobe32bytes!";
     static mut DEC_KEY: &[u8; 32] = b"passphrasewhichneedstobe32bytes!";
 
-    //Mock annotation packet, which goes into container image manifest
+    ///Mock annotation packet, which goes into container image manifest
     #[derive(Serialize, Deserialize, Debug)]
     pub struct AnnotationPacket {
         pub key_url: String,
@@ -207,44 +217,9 @@ mod tests {
     }
 
 
-    //grpc server with mock api implementation for serving the clients with mock WrapKey and Unwrapkey grpc method implementations
+    ///grpc server with mock api implementation for serving the clients with mock WrapKey and Unwrapkey grpc method implementations
     #[derive(Default)]
     struct TestServer {}
-
-    /*
-    async fn start_server() -> Result<(), transport::Error> {
-
-        println!("server started");
-        let addr: SocketAddr = "127.0.0.1:8990".parse().unwrap();
-        let server = TestServer::default();
-        Server::builder()
-            .add_service(KeyProviderServiceServer::new(server))
-            .serve(addr)
-            .await?;
-        Ok(())
-    }
-*/
- //   #[tokio::test]
-    async fn start_server(){
-        let (tx, mut rx) = mpsc::unbounded_channel();
-
-        println!("server started");
-        let addr: SocketAddr = "127.0.0.1:8990".parse().unwrap();
-        let server = TestServer::default();
-        let serve = Server::builder()
-            .add_service(KeyProviderServiceServer::new(server))
-            .serve(addr);
-
-        tokio::spawn(async move {
-            if let Err(e) = serve.await {
-                eprintln!("Error = {:?}", e);
-            }
-
-            tx.send(()).unwrap();
-        });
-
-        rx.recv().await;
-   }
 
     #[tonic::async_trait]
     impl KeyProviderService for TestServer {
@@ -256,39 +231,27 @@ mod tests {
 
             let cipher = Aes256Gcm::new(Key::from_slice(unsafe { ENC_KEY }));
             let nonce = Nonce::from_slice(b"unique nonce");
-            let sym_key: &[u8] = &keyp.keywrapparams.unwrap().optsdata;
-            let wrapped_key = cipher.encrypt(nonce, sym_key).unwrap();
+            let image_layer_sym_key: &[u8] = &keyp.keywrapparams.unwrap().optsdata;
+            let wrapped_key = cipher.encrypt(nonce, image_layer_sym_key).unwrap();
 
             let ap = AnnotationPacket {
                 key_url: "https://key-provider/key-uuid".to_string(),
-                wrapped_key: wrapped_key,
+                wrapped_key,
                 wrap_type: "AES".to_string(),
             };
 
-            let ap_serialized = match bincode::serialize(&ap) {
-                Ok(x) => x,
-                Err(e) => return Err(Status::unknown(format!(
-                    "There was an error while getting a pl: {}", e)))
-            };
+            let serialized_ap = bincode::serialize(&ap).unwrap();
 
-            let key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: Option::from(KeyWrapResults { annotation: ap_serialized }), keyunwrapresults: None };
-            let protocol_ouput_serialized = match bincode::serialize(&key_wrap_output) {
-                Ok(x) => x,
-                Err(e) => return Err(Status::unknown(format!(
-                    "There was an error while getting a pl: {}", e)))
-            };
+            let key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: Option::from(KeyWrapResults { annotation: serialized_ap }), keyunwrapresults: None };
+            let serialized_key_wrap_output = bincode::serialize(&key_wrap_output).unwrap();
 
-            Ok(tonic::Response::new(grpc_output { key_provider_key_wrap_protocol_output: protocol_ouput_serialized }))
+            Ok(tonic::Response::new(grpc_output { key_provider_key_wrap_protocol_output: serialized_key_wrap_output }))
         }
 
         async fn un_wrap_key(&self, request: Request<grpc_input>) -> Result<tonic::Response<grpc_output>, tonic::Status> {
-            let keyp: keyprovider::KeyProviderKeyWrapProtocolInput = match bincode::deserialize(&request.into_inner().key_provider_key_wrap_protocol_input) {
-                Ok(x) => x,
-                Err(e) => return Err(Status::unknown(format!(
-                    "There was an error while getting a pl: {}", e)))
-            };
-            let a: &[u8] = &keyp.keyunwrapparams.unwrap().annotation;
-            let ap: AnnotationPacket = bincode::deserialize(a).unwrap();
+            let keyp: keyprovider::KeyProviderKeyWrapProtocolInput = bincode::deserialize(&request.into_inner().key_provider_key_wrap_protocol_input).unwrap();
+            let serialized_ap: &[u8] = &keyp.keyunwrapparams.unwrap().annotation;
+            let ap: AnnotationPacket = bincode::deserialize(serialized_ap).unwrap();
 
             let cipher = Aes256Gcm::new(Key::from_slice(unsafe { DEC_KEY }));
             let nonce = Nonce::from_slice(b"unique nonce");
@@ -298,126 +261,132 @@ mod tests {
                 .expect("decryption failure!");
 
             let key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: Option::from(KeyUnwrapResults { optsdata: unwrapped_key }) };
-            let protocol_ouput_serialized = bincode::serialize(&key_wrap_output).unwrap();
+            let serialized_key_wrap_output = bincode::serialize(&key_wrap_output).unwrap();
 
-            Ok(tonic::Response::new(grpc_output { key_provider_key_wrap_protocol_output: protocol_ouput_serialized }))
+            Ok(tonic::Response::new(grpc_output { key_provider_key_wrap_protocol_output: serialized_key_wrap_output }))
         }
     }
 
 
     impl CommandExecuter for TestRunner {
-        /// ExecuteCommand is used to execute a linux command line command and return the output of the command with an error if it exists.
+        /// Mock ExecuteCommand for executing a linux command line command and return the output of the command with an error if it exists.
         fn exec(&self, cmd: String, _args: &Vec<String>, input: Vec<u8>) -> std::io::Result<Vec<u8>> {
             let mut key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
             if cmd == "/usr/lib/keyprovider-wrapkey" {
-                let keyp: KeyProviderKeyWrapProtocolInput = bincode::deserialize(input.as_ref()).unwrap();
+                let key_wrap_input: KeyProviderKeyWrapProtocolInput = bincode::deserialize(input.as_ref()).unwrap();
 
                 let cipher = Aes256Gcm::new(Key::from_slice(unsafe { ENC_KEY }));
                 let nonce = Nonce::from_slice(b"unique nonce");
-                let sym_key: &[u8] = &keyp.keywrapparams.unwrap().optsdata;
-                let wrapped_key = cipher.encrypt(nonce, sym_key).unwrap();
+                let image_layer_sym_key: &[u8] = &key_wrap_input.keywrapparams.unwrap().optsdata;
+                let wrapped_key = cipher.encrypt(nonce, image_layer_sym_key).unwrap();
 
                 let ap = AnnotationPacket {
                     key_url: "https://key-provider/key-uuid".to_string(),
-                    wrapped_key: wrapped_key,
+                    wrapped_key,
                     wrap_type: "AES".to_string(),
                 };
 
-                let ap_serialized = bincode::serialize(&ap).unwrap();
-
-                key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: Option::from(KeyWrapResults { annotation: ap_serialized }), keyunwrapresults: None };
+                let serialized_ap = bincode::serialize(&ap).unwrap();
+                key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: Option::from(KeyWrapResults { annotation: serialized_ap }), keyunwrapresults: None };
             } else if cmd == "/usr/lib/keyprovider-unwrapkey" {
-                let keyp: KeyProviderKeyWrapProtocolInput = bincode::deserialize(input.as_ref()).unwrap();
-                let ap_bytes: &[u8] = &keyp.keyunwrapparams.unwrap().annotation;
+                let key_wrap_input: KeyProviderKeyWrapProtocolInput = bincode::deserialize(input.as_ref()).unwrap();
+                let ap_bytes: &[u8] = &key_wrap_input.keyunwrapparams.unwrap().annotation;
                 let ap: AnnotationPacket = bincode::deserialize(ap_bytes).unwrap();
 
                 let cipher_text = ap.wrapped_key;
                 let cipher = Aes256Gcm::new(Key::from_slice(unsafe { DEC_KEY }));
                 let nonce = Nonce::from_slice(b"unique nonce");
-                let unwrapped_key = cipher
+                let image_layer_sym_key = cipher
                     .decrypt(nonce, cipher_text.as_ref())
                     .expect("decryption failure!");
 
-                key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: Option::from(KeyUnwrapResults { optsdata: unwrapped_key }) };
+                key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: Option::from(KeyUnwrapResults { optsdata: image_layer_sym_key }) };
             }
-            let keywrap_output_serialized = bincode::serialize(&key_wrap_output).unwrap();
-            Ok(keywrap_output_serialized)
+            let serialized_keywrap_output = bincode::serialize(&key_wrap_output).unwrap();
+            Ok(serialized_keywrap_output)
         }
     }
 
     #[test]
     fn test_key_provider_command_success() {
         let test_runner = TestRunner {};
-        let test_conf_path = "config.json";
-        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", test_conf_path);
+        let test_conf_path_wrapkey = "wrap-key-config.json";
+        let test_conf_path_unwrapkey = "unwrap-key-config.json";
+        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", test_conf_path_wrapkey);
 
-        //Config File with executable for key wrap
-        let config_file1_data = "{\"key-providers\": \
-                               {\"keyprovider\": {
-                                    \"cmd\": { \
-                                       \"path\": \"/usr/lib/keyprovider-wrapkey\", \
-                                       \"args\": [] \
-                                     }\
-                                 }\
-                              }\
-                          }";
+        // Config File with executable for key wrap
+        let config_file1_data = "{\
+                                            \"key-providers\": {\
+                                                \"keyprovider\": {\
+                                                      \"cmd\": { \
+                                                            \"path\": \"/usr/lib/keyprovider-wrapkey\", \
+                                                            \"args\": [] \
+                                                        }\
+                                                }\
+                                            }\
+                                      }";
 
         //Config File with executable for key unwrap
-        let config_file2_data = "{\"key-providers\": \
-                               {\"keyprovider\": {
-                                    \"cmd\": { \
-                                       \"path\": \"/usr/lib/keyprovider-unwrapkey\", \
-                                       \"args\": [] \
-                                     }\
-                                 }\
-                              }\
-                          }";
+        let config_file2_data = "{\
+                                            \"key-providers\": {\
+                                                \"keyprovider\": {\
+                                                      \"cmd\": { \
+                                                            \"path\": \"/usr/lib/keyprovider-unwrapkey\", \
+                                                            \"args\": [] \
+                                                        }\
+                                                }\
+                                            }\
+                                      }";
 
+        // Generate mock for ocicrypt config file
+        fs::write(test_conf_path_wrapkey, config_file1_data).expect("Unable to write file");
 
-        fs::write(test_conf_path, config_file1_data).expect("Unable to write file");
+        // create keyprovider-key-wrapper
+        assert!(config::get_keyprovider_config().is_ok());
+        let mut kp = config::get_keyprovider_config().unwrap();
+        let mut attrs = kp.key_providers.get("keyprovider").unwrap();
+        let mut keyprovider_key_wrapper = new_key_wrapper("keyprovider".to_string(), attrs.clone(), Some(Box::new(test_runner)));
 
+        // Prepare for mock encryption config
         let opts_data = b"symmetric_key";
-
-        let kp = config::get_configuration().unwrap();
-        let kp_attrs = kp.key_providers.get("keyprovider").unwrap();
-        let key_wrapper = new_key_wrapper("keyprovider".to_string(), kp_attrs.clone(), Some(Box::new(test_runner)));
-
         let mut ec = EncryptConfig::default();
         let mut dc = DecryptConfig::default();
         let mut ec_params = vec![];
         let param = "keyprovider".to_string().into_bytes();
         ec_params.push(param.clone());
-
         assert!(ec.encrypt_with_key_provider(ec_params).is_ok());
+        assert!(keyprovider_key_wrapper.wrap_keys(&ec, opts_data).is_ok());
 
-        assert!(key_wrapper.wrap_keys(&ec, opts_data).is_ok());
+        // Perform key-provider wrap-key operation
+        let key_wrap_output_result = keyprovider_key_wrapper.wrap_keys(&ec, opts_data);
 
-        let key_wrap_output_result = key_wrapper.wrap_keys(&ec, opts_data);
+        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", test_conf_path_unwrapkey);
+        // Generate mock for ocicrypt config file
+        fs::write(test_conf_path_unwrapkey, config_file2_data).expect("Unable to write file");
 
-        fs::write(test_conf_path, config_file2_data).expect("Unable to write file");
+        // Create keyprovider-key-wrapper
+        kp = config::get_keyprovider_config().unwrap();
+        attrs = kp.key_providers.get("keyprovider").unwrap();
+        keyprovider_key_wrapper = new_key_wrapper("keyprovider".to_string(), attrs.clone(), Some(Box::new(test_runner)));
 
-        let kp = config::get_configuration().unwrap();
-        let kp_attrs = kp.key_providers.get("keyprovider").unwrap();
-        let key_wrapper = new_key_wrapper("keyprovider".to_string(), kp_attrs.clone(), Some(Box::new(test_runner)));
-
+        // Prepare for mock encryption config
         let mut dc_params = vec![];
         dc_params.push(param);
-
         assert!(dc.decrypt_with_key_provider(dc_params).is_ok());
 
-        let key_wrap_output_result = key_wrapper.unwrap_keys(&dc, key_wrap_output_result.unwrap().as_ref());
+        // Perform key-provider wrap-key operation
+        let key_wrap_output_result = keyprovider_key_wrapper.unwrap_keys(&dc, key_wrap_output_result.unwrap().as_ref());
         let unwrapped_key: &[u8] = &key_wrap_output_result.unwrap();
         assert_eq!(opts_data, unwrapped_key);
-        fs::remove_file(test_conf_path).expect("unable to remove config test file ");
+
+        fs::remove_file(test_conf_path_unwrapkey).expect("unable to remove config test file ");
+        fs::remove_file(test_conf_path_wrapkey).expect("unable to remove config test file ");
     }
 
-
+    // Run a mock grp server
     fn function_that_spawns() {
-        // Had we not used `rt.enter` below, this would panic.
         tokio::spawn(async move {
             let (tx, mut rx) = mpsc::unbounded_channel();
-
-            println!("server started");
             let addr: SocketAddr = "127.0.0.1:8990".parse().unwrap();
             let server = TestServer::default();
             let serve = Server::builder()
@@ -438,56 +407,62 @@ mod tests {
 
     #[test]
     fn test_key_provider_grpc_success() {
-
-       let rt1 = Runtime::new().unwrap();
-        let _guard = rt1.enter();
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
         function_that_spawns();
 
-        sleep(Duration::from_secs(5));
+        // sleep for few seconds so that grpc server bootstraps
+        sleep(Duration::from_secs(1));
         let test_conf_path = "config.json";
         env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", test_conf_path);
 
-        let config_file1_data = "{\"key-providers\": \
-                                           {\"keyprovider\": {
-                                                \"grpc\": \"tcp://127.0.0.1:8990\"
-                                             },\
-                                            \"keyprovider1\": {
-                                                \"grpc\": \"tcp://localhost:32223\"
-                                             }\
-                                          }\
-                                     }";
-        fs::write(test_conf_path, config_file1_data).expect("Unable to write file");
+        let config_file_data = "{\
+                                            \"key-providers\": \
+                                                {\"keyprovider\": {\
+                                                    \"grpc\": \"tcp://127.0.0.1:8990\"
+                                                },\
+                                                \"keyprovider1\": {
+                                                   \"grpc\": \"tcp://localhost:32223\"
+                                                }\
+                                            }\
+                                       }";
+        // Generate a mock ocicrypt config file for grpc protocol
+        fs::write(test_conf_path, config_file_data).expect("Unable to write file");
 
+        // Create keyprovider-key-wrapper
+        assert!(config::get_keyprovider_config().is_ok());
+        let oci_config = config::get_keyprovider_config().unwrap();
+        let attrs = oci_config.key_providers.get("keyprovider").unwrap();
+        let keyprovider_key_wrapper = new_key_wrapper("keyprovider".to_string(), attrs.clone(), None);
 
+        // Prepare encryption config params
         let opts_data = b"symmetric_key";
         let mut ec = EncryptConfig::default();
         let mut dc = DecryptConfig::default();
-
         let mut ec_params = vec![];
         let param = "keyprovider".to_string().into_bytes();
         ec_params.push(param.clone());
-
-        let oc_config = config::get_configuration().unwrap();
-        let kp_attrs = oc_config.key_providers.get("keyprovider").unwrap();
-        let key_wrapper = new_key_wrapper("keyprovider".to_string(), kp_attrs.clone(), None);
         assert!(ec.encrypt_with_key_provider(ec_params).is_ok());
 
-        assert!(key_wrapper.wrap_keys(&ec, opts_data).is_ok());
-        let key_wrap_output_result = key_wrapper.wrap_keys(&ec, opts_data);
+        // Perform wrapkey operation
+        assert!(keyprovider_key_wrapper.wrap_keys(&ec, opts_data).is_ok());
+        let key_wrap_output_result = keyprovider_key_wrapper.wrap_keys(&ec, opts_data);
 
+        // Perform decryption-config params
         let mut dc_params = vec![];
         dc_params.push(param);
-
         assert!(dc.decrypt_with_key_provider(dc_params).is_ok());
-
         let json_string: &[u8] = &key_wrap_output_result.unwrap();
 
-        let key_wrap_output_result = key_wrapper.unwrap_keys(&dc, json_string);
+        // Perform unwrapkey operation
+        let key_wrap_output_result = keyprovider_key_wrapper.unwrap_keys(&dc, json_string);
         let unwrapped_key: &[u8] = &key_wrap_output_result.unwrap();
+
         assert_eq!(opts_data, unwrapped_key);
+
         fs::remove_file(test_conf_path).expect("unable to remove config test file ");
 
-       rt1.shutdown_background();
-
+        // runtime shutdown for stopping grpc server
+        rt.shutdown_background();
     }
 }
