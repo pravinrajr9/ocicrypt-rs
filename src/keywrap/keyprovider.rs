@@ -102,15 +102,21 @@ impl KeyWrapper for KeyProviderKeyWrapper {
 
         if enc_config.param.contains_key(&self.provider.to_string()) {
             if self.attrs.cmd.as_ref().is_some() {
-                protocol_output = get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()).unwrap()
+                protocol_output = match get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()) {
+                    Ok(v) => v,
+                    Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider, error {:?}",OP_KEY_WRAP.to_string(), e))
+                };
             } else if self.attrs.grpc.as_ref().is_some() {
                 let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_WRAP.to_string()));
-                protocol_output = rt.unwrap()
+                protocol_output = match rt {
+                    Ok(v) => v,
+                    Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider error {:?}",OP_KEY_WRAP.to_string(), e))
+                };
             }
         }
         let key_wrap_results = match protocol_output.keywrapresults {
             Some(x) => x,
-            None => return Err(anyhow!("key-provider: {:?} keywrap operation results are empty", self.provider))
+            None => return Err(anyhow!("key-provider: {:?} on {:?} operation results are empty", self.provider, OP_KEY_WRAP.to_string()))
         };
 
         Ok(key_wrap_results.annotation)
@@ -122,21 +128,27 @@ impl KeyWrapper for KeyProviderKeyWrapper {
         let mut protocol_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
         let key_unwrap_params = KeyUnwrapParams { dc: Some(dc_config.clone()), annotation: Vec::from(json_string) };
         let input = KeyProviderKeyWrapProtocolInput {
-            op: "keyunwrap".to_string(),
+            op: OP_KEY_UNWRAP.to_string(),
             keywrapparams: None,
             keyunwrapparams: Option::from(key_unwrap_params),
         };
         let serialized_input = bincode::serialize(&input).unwrap();
 
         if self.attrs.cmd.as_ref().is_some() {
-            protocol_output = get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()).unwrap();
+            protocol_output = match get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()) {
+                Ok(v) => v,
+                Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider, error {:?}", OP_KEY_UNWRAP.to_string(),e))
+            };
         } else if self.attrs.grpc.as_ref().is_some() {
             let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_UNWRAP.to_string()));
-            protocol_output = rt.unwrap();
+            protocol_output = match rt {
+                Ok(v) => v,
+                Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider error, error {:?}", OP_KEY_UNWRAP.to_string(), e))
+            };
         }
         let key_unwrap_results = match protocol_output.keyunwrapresults {
             Some(x) => x,
-            None => return Err(anyhow!("keyprovider: {:?} keyunwrap operation results are empty",self.provider))
+            None => return Err(anyhow!("keyprovider: {:?} on {:?} operation results are empty",self.provider,OP_KEY_UNWRAP.to_string()))
         };
 
         Ok(key_unwrap_results.optsdata)
@@ -156,17 +168,27 @@ async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String)
     let mut protocol_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
     let uri = conn.parse::<Uri>().unwrap();
     // create a channel ie connection to server
-    let channel = tonic::transport::Channel::builder(uri)
+    let channel = match tonic::transport::Channel::builder(uri)
         .connect()
-        .await.unwrap();
+        .await {
+        Ok(x) => x,
+        Err(e) => return Err(anyhow!("Error while creating channel: {:?}",e))
+    };
 
     let mut client = keyproviderpb::key_provider_service_client::KeyProviderServiceClient::new(channel);
     let request = tonic::Request::new(keyproviderpb::KeyProviderKeyWrapProtocolInput { key_provider_key_wrap_protocol_input: input });
     if operation == OP_KEY_WRAP {
-        let grpc_output = client.wrap_key(request).await?;
+        let grpc_output = match client.wrap_key(request).await {
+            Ok(resp) => resp,
+            Err(e) => return Err(anyhow!("Error from grpc request method wrap_key, error: {:?}",e))
+        };
+
         protocol_output = bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output).unwrap();
     } else if operation == OP_KEY_UNWRAP {
-        let grpc_output = client.un_wrap_key(request).await?;
+        let grpc_output = match client.un_wrap_key(request).await {
+            Ok(resp) => resp,
+            Err(e) => return Err(anyhow!("Error from grpc request method unwrap_key, error: {:?}",e))
+        };
         protocol_output = bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output).unwrap();
     }
     Ok(protocol_output)
@@ -174,7 +196,10 @@ async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String)
 
 fn get_provider_command_output(input: Vec<u8>, cmd: &Option<Command>, runner: &Box<dyn utils::CommandExecuter>) -> Result<KeyProviderKeyWrapProtocolOutput> {
     let resp_bytes: Vec<u8>;
-    resp_bytes = runner.exec(cmd.as_ref().unwrap().path.to_string(), cmd.as_ref().unwrap().args.as_ref().unwrap(), input).unwrap();
+    resp_bytes = match runner.exec(cmd.as_ref().unwrap().path.to_string(), cmd.as_ref().unwrap().args.as_ref().unwrap(), input) {
+        Ok(resp) => resp,
+        Err(e) => return Err(anyhow!("Error from command executer, error: {:?}",e))
+    };
     let protocol_output = bincode::deserialize(&resp_bytes).unwrap();
 
     Ok(protocol_output)
@@ -246,6 +271,7 @@ mod tests {
             let serialized_key_wrap_output = bincode::serialize(&key_wrap_output).unwrap();
 
             Ok(tonic::Response::new(grpc_output { key_provider_key_wrap_protocol_output: serialized_key_wrap_output }))
+            //Err(tonic::Status::new(tonic::Code::InvalidArgument, "unknown operation"))
         }
 
         async fn un_wrap_key(&self, request: Request<grpc_input>) -> Result<tonic::Response<grpc_output>, tonic::Status> {
@@ -269,7 +295,7 @@ mod tests {
 
 
     impl CommandExecuter for TestRunner {
-        /// Mock ExecuteCommand for executing a linux command line command and return the output of the command with an error if it exists.
+        /// Mock CommandExecuter for executing a linux command line command and return the output of the command with an error if it exists.
         fn exec(&self, cmd: String, _args: &Vec<String>, input: Vec<u8>) -> std::io::Result<Vec<u8>> {
             let mut key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
             if cmd == "/usr/lib/keyprovider-wrapkey" {
@@ -304,6 +330,7 @@ mod tests {
             }
             let serialized_keywrap_output = bincode::serialize(&key_wrap_output).unwrap();
             Ok(serialized_keywrap_output)
+            //Err(std::io::Error::new(std::io::ErrorKind::Other, "oh no!"))
         }
     }
 

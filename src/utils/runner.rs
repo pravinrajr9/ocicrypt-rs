@@ -1,3 +1,6 @@
+// Copyright The ocicrypt Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::utils::CommandExecuter;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -24,7 +27,10 @@ impl CommandExecuter for Runner {
                 .expect("Failed to write to stdin");
         });
 
-        let output = child.wait_with_output().expect("Failed to read stdout");
+        let output = match child.wait_with_output() {
+            Ok(o) => o,
+            Err(e) => return Err(e)
+        };
 
         Ok(output.stdout)
     }
