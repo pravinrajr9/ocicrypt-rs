@@ -7,7 +7,7 @@ pub mod runner;
 #[cfg(feature = "utils-keyprovider")]
 pub mod keyprovider;
 
-/// first argument is the command, like cat or echo,
+/// CommandExecuter trait which requires implementation for command exec, first argument is the command name, like /usr/bin/<command-name>,
 /// the second is the list of args to pass to it
 #[allow(unused_variables)]
 pub trait CommandExecuter {

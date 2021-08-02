@@ -101,19 +101,22 @@ impl KeyWrapper for KeyProviderKeyWrapper {
             keywrapparams: Option::from(key_wrap_params),
             keyunwrapparams: None,
         };
-        let serialized_input = bincode::serialize(&input).unwrap();
+        let serialized_input = match bincode::serialize(&input) {
+            Ok(x) => x,
+            Err(_) => return Err(anyhow!("Error while serializing key provider input parameters on {:?} operation", OP_KEY_WRAP.to_string()))
+        };
 
         if enc_config.param.contains_key(&self.provider.to_string()) {
             if self.attrs.cmd.as_ref().is_some() {
                 protocol_output = match get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()) {
                     Ok(v) => v,
-                    Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider, error {:?}",OP_KEY_WRAP.to_string(), e))
+                    Err(_) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider",OP_KEY_WRAP.to_string()))
                 };
             } else if self.attrs.grpc.as_ref().is_some() {
                 let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_WRAP.to_string()));
                 protocol_output = match rt {
                     Ok(v) => v,
-                    Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider error {:?}",OP_KEY_WRAP.to_string(), e))
+                    Err(_) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider",OP_KEY_WRAP.to_string()))
                 };
             }
         }
@@ -135,18 +138,21 @@ impl KeyWrapper for KeyProviderKeyWrapper {
             keywrapparams: None,
             keyunwrapparams: Option::from(key_unwrap_params),
         };
-        let serialized_input = bincode::serialize(&input).unwrap();
+        let serialized_input = match bincode::serialize(&input) {
+            Ok(x) => x,
+            Err(_) => return Err(anyhow!("Error while serializing key provider input parameters on {:?} operation", OP_KEY_UNWRAP.to_string()))
+        };
 
         if self.attrs.cmd.as_ref().is_some() {
             protocol_output = match get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()) {
                 Ok(v) => v,
-                Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider, error {:?}", OP_KEY_UNWRAP.to_string(),e))
+                Err(_) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider", OP_KEY_UNWRAP.to_string()))
             };
         } else if self.attrs.grpc.as_ref().is_some() {
             let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_UNWRAP.to_string()));
             protocol_output = match rt {
                 Ok(v) => v,
-                Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider error, error {:?}", OP_KEY_UNWRAP.to_string(), e))
+                Err(_) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider error", OP_KEY_UNWRAP.to_string()))
             };
         }
         let key_unwrap_results = match protocol_output.keyunwrapresults {
@@ -177,22 +183,27 @@ async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String)
         Ok(x) => x,
         Err(e) => return Err(anyhow!("Error while creating channel: {:?}",e))
     };
-
     let mut client = keyproviderpb::key_provider_service_client::KeyProviderServiceClient::new(channel);
     let request = tonic::Request::new(keyproviderpb::KeyProviderKeyWrapProtocolInput { key_provider_key_wrap_protocol_input: input });
     if operation == OP_KEY_WRAP {
         let grpc_output = match client.wrap_key(request).await {
             Ok(resp) => resp,
-            Err(e) => return Err(anyhow!("Error from grpc request method wrap_key, error: {:?}",e))
+            Err(_) => return Err(anyhow!("Error from grpc request method on {:?} operation", OP_KEY_WRAP.to_string()))
         };
 
-        protocol_output = bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output).unwrap();
+        protocol_output = match bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output) {
+            Ok(x) => x,
+            Err(_) => return Err(anyhow!("Errpr while deserializing grpc output on {:?} operation", OP_KEY_WRAP.to_string()))
+        }
     } else if operation == OP_KEY_UNWRAP {
         let grpc_output = match client.un_wrap_key(request).await {
             Ok(resp) => resp,
-            Err(e) => return Err(anyhow!("Error from grpc request method unwrap_key, error: {:?}",e))
+            Err(_) => return Err(anyhow!("Error from grpc request method on {:?} operation", OP_KEY_UNWRAP.to_string()))
         };
-        protocol_output = bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output).unwrap();
+        protocol_output = match bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output) {
+            Ok(x) => x,
+            Err(_) => return Err(anyhow!("Errpr while deserializing grpc output on {:?} operation", OP_KEY_UNWRAP.to_string()))
+        };
     }
     Ok(protocol_output)
 }
@@ -201,9 +212,12 @@ fn get_provider_command_output(input: Vec<u8>, cmd: &Option<Command>, runner: &B
     let resp_bytes: Vec<u8>;
     resp_bytes = match runner.exec(cmd.as_ref().unwrap().path.to_string(), cmd.as_ref().unwrap().args.as_ref().unwrap(), input) {
         Ok(resp) => resp,
-        Err(e) => return Err(anyhow!("Error from command executer, error: {:?}",e))
+        Err(_) => return Err(anyhow!("Error from command executer"))
     };
-    let protocol_output = bincode::deserialize(&resp_bytes).unwrap();
+    let protocol_output = match bincode::deserialize(&resp_bytes) {
+        Ok(x) => x,
+        Err(_) => return Err(anyhow!("Errpr while deserializing ommand executer output"))
+    };
 
     Ok(protocol_output)
 }
@@ -413,9 +427,9 @@ mod tests {
         fs::remove_file(test_conf_path_wrapkey).expect("unable to remove config test file ");
     }
 
-    // Run a mock grp server
-    fn function_that_spawns() {
-        tokio::spawn(async move {
+    // Run a mock grpc server
+    fn start_grpc_server() {
+        tokio::spawn(async {
             let (tx, mut rx) = mpsc::unbounded_channel();
             let addr: SocketAddr = "127.0.0.1:8990".parse().unwrap();
             let server = TestServer::default();
@@ -439,7 +453,7 @@ mod tests {
     fn test_key_provider_grpc_success() {
         let rt = Runtime::new().unwrap();
         let _guard = rt.enter();
-        function_that_spawns();
+        start_grpc_server();
 
         // sleep for few seconds so that grpc server bootstraps
         sleep(Duration::from_secs(1));
