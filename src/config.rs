@@ -254,6 +254,7 @@ pub fn get_keyprovider_config() -> Result<OcicryptConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs, env};
 
     #[test]
     fn test_decrypt_config() {
@@ -340,5 +341,31 @@ mod tests {
         cc.decrypt_config = Some(dc);
         assert!(cc.encrypt_config.is_some());
         assert!(cc.decrypt_config.is_some());
+    }
+
+    #[test]
+    fn test_ocicrypt_config() {
+        let mut provider = HashMap::new();
+        let args: Vec<String> = Vec::default();
+        let attrs = KeyProviderAttrs { cmd: Some(Command { path: "/usr/lib/keyprovider-wrapkey".to_string(), args: Some(args) }), grpc: None };
+        provider.insert(String::from("keyprovider"), attrs);
+        let test_conf_path = "unwrap-key-config.json".to_string();
+        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", &test_conf_path);
+        // Config File with executable for key wrap
+        let config_file_content = "{\
+                                            \"key-providers\": {\
+                                                \"keyprovider\": {\
+                                                      \"cmd\": { \
+                                                            \"path\": \"/usr/lib/keyprovider-wrapkey\", \
+                                                            \"args\": [] \
+                                                        }\
+                                                }\
+                                            }\
+                                      }";
+
+        // Generate mock ocicrypt config file
+        fs::write(&test_conf_path, config_file_content).expect("Unable to write file");
+        assert!(get_keyprovider_config().is_ok());
+        fs::remove_file(&test_conf_path).expect("unable to remove config test file ");
     }
 }

@@ -218,16 +218,24 @@ async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String)
 
 fn get_provider_command_output(input: Vec<u8>, cmd: &Option<Command>, runner: &Box<dyn utils::CommandExecuter>) -> Result<KeyProviderKeyWrapProtocolOutput> {
     let resp_bytes: Vec<u8>;
-    resp_bytes = match runner.exec(cmd.as_ref().unwrap().path.to_string(), cmd.as_ref().unwrap().args.as_ref().unwrap(), input) {
-        Ok(resp) => resp,
-        Err(_) => return Err(anyhow!("Error from command executer"))
-    };
-    let protocol_output = match bincode::deserialize(&resp_bytes) {
-        Ok(x) => x,
-        Err(_) => return Err(anyhow!("Error while deserializing command executer output"))
-    };
+    if cmd.as_ref().is_some() {
+        let cmd_name = cmd.as_ref().unwrap().path.to_string();
+        let mut args = &vec![];
+        if cmd.as_ref().unwrap().args.as_ref().is_some() {
+            args = cmd.as_ref().unwrap().args.as_ref().unwrap();
+        }
+        resp_bytes = match runner.exec(cmd_name, args, input) {
+            Ok(resp) => resp,
+            Err(_) => return Err(anyhow!("Error from command executer"))
+        };
+        let protocol_output: KeyProviderKeyWrapProtocolOutput = match bincode::deserialize(&resp_bytes) {
+            Ok(x) => x,
+            Err(_) => return Err(anyhow!("Error while deserializing command executer output"))
+        };
 
-    Ok(protocol_output)
+        return Ok(protocol_output);
+    }
+    Err(anyhow!("No command or args specified in key provider"))
 }
 
 #[cfg(test)]
@@ -243,13 +251,13 @@ mod tests {
     use aes_gcm::aead::{Aead, NewAead};
     use aes_gcm::{Aes256Gcm, Key, Nonce};
     use crate::keywrap::keyprovider::{KeyProviderKeyWrapProtocolOutput, KeyWrapResults, KeyUnwrapResults, KeyProviderKeyWrapProtocolInput, new_key_wrapper};
-    use std::{env, fs};
     use crate::config::{EncryptConfig, DecryptConfig};
     use crate::utils::keyprovider::key_provider_service_server::KeyProviderService;
     use tokio::sync::mpsc;
     use tokio::runtime::Runtime;
     use std::time::Duration;
     use std::thread::sleep;
+    use std::collections::HashMap;
 
     ///Test runner which mocks binary executable for key wrapping and unwrapping
     #[derive(Clone, Copy)]
@@ -296,7 +304,6 @@ mod tests {
             let serialized_key_wrap_output = bincode::serialize(&key_wrap_output).unwrap();
 
             Ok(tonic::Response::new(grpc_output { key_provider_key_wrap_protocol_output: serialized_key_wrap_output }))
-            //Err(tonic::Status::new(tonic::Code::InvalidArgument, "unknown operation"))
         }
 
         async fn un_wrap_key(&self, request: Request<grpc_input>) -> Result<tonic::Response<grpc_output>, tonic::Status> {
@@ -329,7 +336,10 @@ mod tests {
                 let cipher = Aes256Gcm::new(Key::from_slice(unsafe { ENC_KEY }));
                 let nonce = Nonce::from_slice(b"unique nonce");
                 let image_layer_sym_key: &[u8] = &key_wrap_input.keywrapparams.unwrap().optsdata;
-                let wrapped_key = cipher.encrypt(nonce, image_layer_sym_key).unwrap();
+                let wrapped_key = match cipher.encrypt(nonce, image_layer_sym_key) {
+                    Ok(x) => x,
+                    Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "encryption failure"))
+                };
 
                 let ap = AnnotationPacket {
                     key_url: "https://key-provider/key-uuid".to_string(),
@@ -347,57 +357,31 @@ mod tests {
                 let cipher_text = ap.wrapped_key;
                 let cipher = Aes256Gcm::new(Key::from_slice(unsafe { DEC_KEY }));
                 let nonce = Nonce::from_slice(b"unique nonce");
-                let image_layer_sym_key = cipher
-                    .decrypt(nonce, cipher_text.as_ref())
-                    .expect("decryption failure!");
+                let image_layer_sym_key = match cipher
+                    .decrypt(nonce, cipher_text.as_ref()) {
+                    Ok(x) => x,
+                    Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "decryption failure"))
+                };
 
                 key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: Option::from(KeyUnwrapResults { optsdata: image_layer_sym_key }) };
             }
             let serialized_keywrap_output = bincode::serialize(&key_wrap_output).unwrap();
             Ok(serialized_keywrap_output)
-            //Err(std::io::Error::new(std::io::ErrorKind::Other, "oh no!"))
         }
     }
 
     #[test]
     fn test_key_provider_command_success() {
         let test_runner = TestRunner {};
-        let test_conf_path_wrapkey = "wrap-key-config.json";
-        let test_conf_path_unwrapkey = "unwrap-key-config.json";
-        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", test_conf_path_wrapkey);
-
-        // Config File with executable for key wrap
-        let config_file1_data = "{\
-                                            \"key-providers\": {\
-                                                \"keyprovider\": {\
-                                                      \"cmd\": { \
-                                                            \"path\": \"/usr/lib/keyprovider-wrapkey\", \
-                                                            \"args\": [] \
-                                                        }\
-                                                }\
-                                            }\
-                                      }";
-
-        //Config File with executable for key unwrap
-        let config_file2_data = "{\
-                                            \"key-providers\": {\
-                                                \"keyprovider\": {\
-                                                      \"cmd\": { \
-                                                            \"path\": \"/usr/lib/keyprovider-unwrapkey\", \
-                                                            \"args\": [] \
-                                                        }\
-                                                }\
-                                            }\
-                                      }";
-
-        // Generate mock for ocicrypt config file
-        fs::write(test_conf_path_wrapkey, config_file1_data).expect("Unable to write file");
-
-        // create keyprovider-key-wrapper
-        assert!(config::get_keyprovider_config().is_ok());
-        let mut kp = config::get_keyprovider_config().unwrap();
-        let mut attrs = kp.key_providers.get("keyprovider").unwrap();
+        let mut provider = HashMap::new();
+        let mut attrs = config::KeyProviderAttrs { cmd: Some(config::Command { path: "/usr/lib/keyprovider-wrapkey".to_string(), args: None }), grpc: None };
+        provider.insert(String::from("provider"), attrs.clone());
         let mut keyprovider_key_wrapper = new_key_wrapper("keyprovider".to_string(), attrs.clone(), Some(Box::new(test_runner)));
+
+        unsafe {
+            ENC_KEY = b"passphrasewhichneedstobe32bytes!";
+            DEC_KEY = b"passphrasewhichneedstobe32bytes!";
+        }
 
         // Prepare for mock encryption config
         let opts_data = b"symmetric_key";
@@ -412,15 +396,10 @@ mod tests {
         // Perform key-provider wrap-key operation
         let key_wrap_output_result = keyprovider_key_wrapper.wrap_keys(&ec, opts_data);
 
-        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", test_conf_path_unwrapkey);
-        // Generate mock for ocicrypt config file
-        fs::write(test_conf_path_unwrapkey, config_file2_data).expect("Unable to write file");
-
         // Create keyprovider-key-wrapper
-        kp = config::get_keyprovider_config().unwrap();
-        attrs = kp.key_providers.get("keyprovider").unwrap();
+        attrs = config::KeyProviderAttrs { cmd: Some(config::Command { path: "/usr/lib/keyprovider-unwrapkey".to_string(), args: None }), grpc: None };
+        provider.insert(String::from("provider"), attrs.clone());
         keyprovider_key_wrapper = new_key_wrapper("keyprovider".to_string(), attrs.clone(), Some(Box::new(test_runner)));
-
         // Prepare for mock encryption config
         let mut dc_params = vec![];
         dc_params.push(param);
@@ -430,9 +409,57 @@ mod tests {
         let key_wrap_output_result = keyprovider_key_wrapper.unwrap_keys(&dc, key_wrap_output_result.unwrap().as_ref());
         let unwrapped_key: &[u8] = &key_wrap_output_result.unwrap();
         assert_eq!(opts_data, unwrapped_key);
+    }
 
-        fs::remove_file(test_conf_path_unwrapkey).expect("unable to remove config test file ");
-        fs::remove_file(test_conf_path_wrapkey).expect("unable to remove config test file ");
+    #[test]
+    fn test_command_executer_wrap_key_fail() {
+        let test_runner = TestRunner {};
+        let mut provider = HashMap::new();
+        let attrs = config::KeyProviderAttrs { cmd: Some(config::Command { path: "/usr/lib/keyprovider-wrapkey".to_string(), args: None }), grpc: None };
+        provider.insert(String::from("provider"), attrs.clone());
+        let keyprovider_key_wrapper = new_key_wrapper("keyprovider".to_string(), attrs.clone(), Some(Box::new(test_runner)));
+
+        let opts_data = b"symmetric_key";
+        let mut ec = EncryptConfig::default();
+        let mut ec_params = vec![];
+        let param = "keyprovider1".to_string().into_bytes();
+        ec_params.push(param.clone());
+        assert!(ec.encrypt_with_key_provider(ec_params).is_ok());
+        assert!(keyprovider_key_wrapper.wrap_keys(&ec, opts_data).is_err());
+    }
+
+    #[test]
+    fn test_command_executer_unwrap_key_fail() {
+        let test_runner = TestRunner {};
+        let mut provider = HashMap::new();
+        let attrs = config::KeyProviderAttrs { cmd: Some(config::Command { path: "/usr/lib/keyprovider-unwrapkey".to_string(), args: None }), grpc: None };
+        provider.insert(String::from("provider"), attrs.clone());
+        let keyprovider_key_wrapper = new_key_wrapper("keyprovider".to_string(), attrs.clone(), Some(Box::new(test_runner)));
+
+        // Prepare for mock encryption config
+        let param = "keyprovider1".to_string().into_bytes();
+        let mut dc_params = vec![];
+        dc_params.push(param);
+        let mut dc = DecryptConfig::default();
+        assert!(dc.decrypt_with_key_provider(dc_params).is_ok());
+
+        let opts_data = b"symmetric_key";
+
+        // Change the decryption key so that decryption should fail
+        unsafe { DEC_KEY = b"wrong_passwhichneedstobe32bytes!" };
+        let image_layer_sym_key: &[u8] = opts_data;
+        let cipher = Aes256Gcm::new(Key::from_slice(unsafe { ENC_KEY }));
+        let nonce = Nonce::from_slice(b"unique nonce");
+        let wrapped_key = cipher.encrypt(nonce, image_layer_sym_key).unwrap();
+
+        let ap = AnnotationPacket {
+            key_url: "https://key-provider/key-uuid".to_string(),
+            wrapped_key,
+            wrap_type: "AES".to_string(),
+        };
+
+        let serialized_ap = bincode::serialize(&ap).unwrap();
+        assert!(keyprovider_key_wrapper.unwrap_keys(&dc, &serialized_ap).is_err());
     }
 
     // Run a mock grpc server
@@ -461,30 +488,17 @@ mod tests {
     fn test_key_provider_grpc_success() {
         let rt = Runtime::new().unwrap();
         let _guard = rt.enter();
-        start_grpc_server();
-
         // sleep for few seconds so that grpc server bootstraps
+        start_grpc_server();
         sleep(Duration::from_secs(1));
-        let test_conf_path = "config.json";
-        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", test_conf_path);
+        unsafe {
+            ENC_KEY = b"passphrasewhichneedstobe32bytes!";
+            DEC_KEY = b"passphrasewhichneedstobe32bytes!";
+        }
 
-        let config_file_data = "{\
-                                            \"key-providers\": \
-                                                {\"keyprovider\": {\
-                                                    \"grpc\": \"tcp://127.0.0.1:8990\"
-                                                },\
-                                                \"keyprovider1\": {
-                                                   \"grpc\": \"tcp://localhost:32223\"
-                                                }\
-                                            }\
-                                       }";
-        // Generate a mock ocicrypt config file for grpc protocol
-        fs::write(test_conf_path, config_file_data).expect("Unable to write file");
-
-        // Create keyprovider-key-wrapper
-        assert!(config::get_keyprovider_config().is_ok());
-        let oci_config = config::get_keyprovider_config().unwrap();
-        let attrs = oci_config.key_providers.get("keyprovider").unwrap();
+        let mut provider = HashMap::new();
+        let attrs = config::KeyProviderAttrs { cmd: None, grpc: Some("tcp://127.0.0.1:8990".to_string()) };
+        provider.insert(String::from("provider"), attrs.clone());
         let keyprovider_key_wrapper = new_key_wrapper("keyprovider".to_string(), attrs.clone(), None);
 
         // Prepare encryption config params
@@ -495,8 +509,6 @@ mod tests {
         let param = "keyprovider".to_string().into_bytes();
         ec_params.push(param.clone());
         assert!(ec.encrypt_with_key_provider(ec_params).is_ok());
-
-        // Perform wrapkey operation
         assert!(keyprovider_key_wrapper.wrap_keys(&ec, opts_data).is_ok());
         let key_wrap_output_result = keyprovider_key_wrapper.wrap_keys(&ec, opts_data);
 
@@ -511,8 +523,6 @@ mod tests {
         let unwrapped_key: &[u8] = &key_wrap_output_result.unwrap();
 
         assert_eq!(opts_data, unwrapped_key);
-
-        fs::remove_file(test_conf_path).expect("unable to remove config test file ");
 
         // runtime shutdown for stopping grpc server
         rt.shutdown_background();
