@@ -13,7 +13,6 @@ use tokio;
 use crate::utils::{CommandExecuter};
 use tokio::runtime::Runtime;
 use core::option::Option;
-
 use core::fmt::Debug;
 use tonic::codegen::http::Uri;
 
@@ -23,7 +22,6 @@ impl Debug for dyn CommandExecuter {
         write!(f, "CommandExecuter")
     }
 }
-
 
 /// A KeyProvider keywrapper
 #[derive(Debug)]
@@ -40,10 +38,13 @@ pub const OP_KEY_UNWRAP: &str = "keyunwrap";
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyProviderKeyWrapProtocolInput {
     /// op is either "keywrap" or "keyunwrap"
+    #[serde(alias = "op")]
     op: String,
     /// keywrapparams encodes the arguments to key wrap if operation is set to wrap
+    #[serde(alias = "keywrapparams")]
     keywrapparams: Option<KeyWrapParams>,
     /// keyunwrapparams encodes the arguments to key unwrap if operation is set to unwrap
+    #[serde(alias = "keyunwrapparams")]
     keyunwrapparams: Option<KeyUnwrapParams>,
 }
 
@@ -52,30 +53,38 @@ pub struct KeyProviderKeyWrapProtocolInput {
 #[derive(Serialize, Deserialize)]
 pub struct KeyProviderKeyWrapProtocolOutput {
     /// keywrapresults encodes the results to key wrap if operation is to keywrap
+    #[serde(alias = "keywrapresults")]
     keywrapresults: Option<KeyWrapResults>,
     /// keyunwrapresults encodes the result to key unwrap if operation is to keyunwrap
+    #[serde(alias = "keyunwrapresults")]
     keyunwrapresults: Option<KeyUnwrapResults>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyWrapParams {
+    #[serde(alias = "ec")]
     pub ec: Option<EncryptConfig>,
+    #[serde(alias = "optsdata")]
     optsdata: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyUnwrapParams {
+    #[serde(alias = "dc")]
     pub dc: Option<DecryptConfig>,
+    #[serde(alias = "annotation")]
     annotation: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyUnwrapResults {
+    #[serde(alias = "optsdata")]
     optsdata: Vec<u8>
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyWrapResults {
+    #[serde(alias = "annotation")]
     annotation: Vec<u8>
 }
 
@@ -110,13 +119,13 @@ impl KeyWrapper for KeyProviderKeyWrapper {
             if self.attrs.cmd.as_ref().is_some() {
                 protocol_output = match get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()) {
                     Ok(v) => v,
-                    Err(_) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider",OP_KEY_WRAP.to_string()))
+                    Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider, error: {:?}",OP_KEY_WRAP.to_string(), e))
                 };
             } else if self.attrs.grpc.as_ref().is_some() {
                 let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_WRAP.to_string()));
                 protocol_output = match rt {
                     Ok(v) => v,
-                    Err(_) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider",OP_KEY_WRAP.to_string()))
+                    Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider, error: {:?}",OP_KEY_WRAP.to_string(),e))
                 };
             }
         }
@@ -146,13 +155,13 @@ impl KeyWrapper for KeyProviderKeyWrapper {
         if self.attrs.cmd.as_ref().is_some() {
             protocol_output = match get_provider_command_output(serialized_input, &self.attrs.cmd, self.runner.as_ref().unwrap()) {
                 Ok(v) => v,
-                Err(_) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider", OP_KEY_UNWRAP.to_string()))
+                Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from binary executable provider, error: {:?}", OP_KEY_UNWRAP.to_string(), e))
             };
         } else if self.attrs.grpc.as_ref().is_some() {
             let rt = Runtime::new().unwrap().block_on(get_provider_grpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_UNWRAP.to_string()));
             protocol_output = match rt {
                 Ok(v) => v,
-                Err(_) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider error", OP_KEY_UNWRAP.to_string()))
+                Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider error, error: {:?}", OP_KEY_UNWRAP.to_string(), e))
             };
         }
         let key_unwrap_results = match protocol_output.keyunwrapresults {
@@ -190,10 +199,9 @@ async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String)
             Ok(resp) => resp,
             Err(_) => return Err(anyhow!("Error from grpc request method on {:?} operation", OP_KEY_WRAP.to_string()))
         };
-
         protocol_output = match bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output) {
             Ok(x) => x,
-            Err(_) => return Err(anyhow!("Errpr while deserializing grpc output on {:?} operation", OP_KEY_WRAP.to_string()))
+            Err(_) => return Err(anyhow!("Error while deserializing grpc output on {:?} operation", OP_KEY_WRAP.to_string()))
         }
     } else if operation == OP_KEY_UNWRAP {
         let grpc_output = match client.un_wrap_key(request).await {
@@ -202,7 +210,7 @@ async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String)
         };
         protocol_output = match bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output) {
             Ok(x) => x,
-            Err(_) => return Err(anyhow!("Errpr while deserializing grpc output on {:?} operation", OP_KEY_UNWRAP.to_string()))
+            Err(_) => return Err(anyhow!("Error while deserializing grpc output on {:?} operation", OP_KEY_UNWRAP.to_string()))
         };
     }
     Ok(protocol_output)
@@ -216,7 +224,7 @@ fn get_provider_command_output(input: Vec<u8>, cmd: &Option<Command>, runner: &B
     };
     let protocol_output = match bincode::deserialize(&resp_bytes) {
         Ok(x) => x,
-        Err(_) => return Err(anyhow!("Errpr while deserializing ommand executer output"))
+        Err(_) => return Err(anyhow!("Error while deserializing command executer output"))
     };
 
     Ok(protocol_output)

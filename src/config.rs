@@ -19,14 +19,18 @@ pub struct DecryptConfig {
 /// binary executable and args are passed on to the binary executable
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Command {
+    #[serde(alias = "path")]
     pub path: String,
+    #[serde(alias = "args")]
     pub args: Option<Vec<String>>,
 }
 
 /// KeyProviderAttrs describes the structure of key provider, it defines the different ways of invocation to key provider
 #[derive(Deserialize, Debug, Clone)]
 pub struct KeyProviderAttrs {
+    #[serde(alias = "cmd")]
     pub cmd: core::option::Option<Command>,
+    #[serde(alias = "grpc")]
     pub grpc: core::option::Option<String>,
 }
 
