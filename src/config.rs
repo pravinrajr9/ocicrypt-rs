@@ -12,6 +12,7 @@ pub const OCICRYPT_ENVVARNAME: &str = "OCICRYPT_KEYPROVIDER_CONFIG";
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct DecryptConfig {
     /// map holding 'privkeys', 'x509s', 'gpg-privatekeys'
+    #[serde(rename = "Parameters")]
     pub param: HashMap<String, Vec<Vec<u8>>>,
 }
 
@@ -19,25 +20,25 @@ pub struct DecryptConfig {
 /// binary executable and args are passed on to the binary executable
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Command {
-    #[serde(alias = "path")]
+    #[serde(rename = "path")]
     pub path: String,
-    #[serde(alias = "args")]
+    #[serde(rename = "args")]
     pub args: Option<Vec<String>>,
 }
 
 /// KeyProviderAttrs describes the structure of key provider, it defines the different ways of invocation to key provider
 #[derive(Deserialize, Debug, Clone)]
 pub struct KeyProviderAttrs {
-    #[serde(alias = "cmd")]
+    #[serde(rename = "cmd")]
     pub cmd: core::option::Option<Command>,
-    #[serde(alias = "grpc")]
+    #[serde(rename = "grpc")]
     pub grpc: core::option::Option<String>,
 }
 
 /// OcicryptConfig represents the format of an ocicrypt_provider.conf config file
 #[derive(Deserialize)]
 pub struct OcicryptConfig {
-    #[serde(alias = "key-providers")]
+    #[serde(rename = "key-providers")]
     pub key_providers: HashMap<String, KeyProviderAttrs>
 }
 
@@ -129,9 +130,11 @@ impl DecryptConfig {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct EncryptConfig {
     /// map holding 'gpg-recipients', 'gpg-pubkeyringfile', 'pubkeys', 'x509s'
+    #[serde(rename = "Parameters")]
     pub param: HashMap<String, Vec<Vec<u8>>>,
 
     /// Allow for adding wrapped keys to an encrypted layer
+    #[serde(rename = "DecryptConfig")]
     pub decrypt_config: Option<DecryptConfig>,
 }
 
@@ -254,7 +257,8 @@ pub fn get_keyprovider_config() -> Result<OcicryptConfig> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, env};
+    use std::{env};
+    use std::path::PathBuf;
 
     #[test]
     fn test_decrypt_config() {
@@ -345,27 +349,18 @@ mod tests {
 
     #[test]
     fn test_ocicrypt_config() {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("data");
+        let test_conf_path = format!("{}/{}", path.to_str().unwrap().to_string(), "ocicrypt_config.json");
+        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", &test_conf_path);
+
         let mut provider = HashMap::new();
         let args: Vec<String> = Vec::default();
         let attrs = KeyProviderAttrs { cmd: Some(Command { path: "/usr/lib/keyprovider-wrapkey".to_string(), args: Some(args) }), grpc: None };
         provider.insert(String::from("keyprovider"), attrs);
-        let test_conf_path = "unwrap-key-config.json".to_string();
-        env::set_var("OCICRYPT_KEYPROVIDER_CONFIG", &test_conf_path);
-        // Config File with executable for key wrap
-        let config_file_content = "{\
-                                            \"key-providers\": {\
-                                                \"keyprovider\": {\
-                                                      \"cmd\": { \
-                                                            \"path\": \"/usr/lib/keyprovider-wrapkey\", \
-                                                            \"args\": [] \
-                                                        }\
-                                                }\
-                                            }\
-                                      }";
 
-        // Generate mock ocicrypt config file
-        fs::write(&test_conf_path, config_file_content).expect("Unable to write file");
         assert!(get_keyprovider_config().is_ok());
-        fs::remove_file(&test_conf_path).expect("unable to remove config test file ");
+        let provider_unmarshalled = get_keyprovider_config().unwrap();
+        assert_eq!(provider_unmarshalled.key_providers.get("keyprovider").unwrap().cmd.as_ref().unwrap().path, provider.get("keyprovider").unwrap().cmd.as_ref().unwrap().path)
     }
 }

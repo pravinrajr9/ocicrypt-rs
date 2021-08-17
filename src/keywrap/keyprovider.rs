@@ -38,14 +38,14 @@ pub const OP_KEY_UNWRAP: &str = "keyunwrap";
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyProviderKeyWrapProtocolInput {
     /// op is either "keywrap" or "keyunwrap"
-    #[serde(alias = "op")]
+    #[serde(rename = "op")]
     op: String,
     /// keywrapparams encodes the arguments to key wrap if operation is set to wrap
-    #[serde(alias = "keywrapparams")]
-    keywrapparams: Option<KeyWrapParams>,
+    #[serde(rename = "keywrapparams")]
+    key_wrap_params: Option<KeyWrapParams>,
     /// keyunwrapparams encodes the arguments to key unwrap if operation is set to unwrap
-    #[serde(alias = "keyunwrapparams")]
-    keyunwrapparams: Option<KeyUnwrapParams>,
+    #[serde(rename = "keyunwrapparams")]
+    key_unwrap_params: Option<KeyUnwrapParams>,
 }
 
 
@@ -53,38 +53,38 @@ pub struct KeyProviderKeyWrapProtocolInput {
 #[derive(Serialize, Deserialize)]
 pub struct KeyProviderKeyWrapProtocolOutput {
     /// keywrapresults encodes the results to key wrap if operation is to keywrap
-    #[serde(alias = "keywrapresults")]
-    keywrapresults: Option<KeyWrapResults>,
+    #[serde(rename = "keywrapresults")]
+    key_wrap_results: Option<KeyWrapResults>,
     /// keyunwrapresults encodes the result to key unwrap if operation is to keyunwrap
-    #[serde(alias = "keyunwrapresults")]
-    keyunwrapresults: Option<KeyUnwrapResults>,
+    #[serde(rename = "keyunwrapresults")]
+    key_unwrap_results: Option<KeyUnwrapResults>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyWrapParams {
-    #[serde(alias = "ec")]
+    #[serde(rename = "ec")]
     pub ec: Option<EncryptConfig>,
-    #[serde(alias = "optsdata")]
-    optsdata: Vec<u8>,
+    #[serde(rename = "optsdata")]
+    opts_data: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyUnwrapParams {
-    #[serde(alias = "dc")]
+    #[serde(rename = "dc")]
     pub dc: Option<DecryptConfig>,
-    #[serde(alias = "annotation")]
+    #[serde(rename = "annotation")]
     annotation: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyUnwrapResults {
-    #[serde(alias = "optsdata")]
-    optsdata: Vec<u8>
+    #[serde(rename = "optsdata")]
+    opts_data: Vec<u8>
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KeyWrapResults {
-    #[serde(alias = "annotation")]
+    #[serde(rename = "annotation")]
     annotation: Vec<u8>
 }
 
@@ -103,12 +103,12 @@ impl KeyWrapper for KeyProviderKeyWrapper {
     /// WrapKeys calls appropriate binary-executable or grpc/ttrpc server for wrapping the session key for recipients and gets encrypted optsData, which
     /// describe the symmetric key used for encrypting the layer
     fn wrap_keys(&self, enc_config: &EncryptConfig, opts_data: &[u8]) -> Result<Vec<u8>> {
-        let mut protocol_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
-        let key_wrap_params = KeyWrapParams { ec: Some(enc_config.clone()), optsdata: Vec::from(opts_data) };
+        let mut protocol_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: None, key_unwrap_results: None };
+        let key_wrap_params = KeyWrapParams { ec: Some(enc_config.clone()), opts_data: Vec::from(opts_data) };
         let input = KeyProviderKeyWrapProtocolInput {
             op: OP_KEY_WRAP.to_string(),
-            keywrapparams: Option::from(key_wrap_params),
-            keyunwrapparams: None,
+            key_wrap_params: Option::from(key_wrap_params),
+            key_unwrap_params: None,
         };
         let serialized_input = match bincode::serialize(&input) {
             Ok(x) => x,
@@ -129,7 +129,7 @@ impl KeyWrapper for KeyProviderKeyWrapper {
                 };
             }
         }
-        let key_wrap_results = match protocol_output.keywrapresults {
+        let key_wrap_results = match protocol_output.key_wrap_results {
             Some(x) => x,
             None => return Err(anyhow!("key-provider: {:?} on {:?} operation results are empty", self.provider, OP_KEY_WRAP.to_string()))
         };
@@ -140,12 +140,12 @@ impl KeyWrapper for KeyProviderKeyWrapper {
     /// UnwrapKey calls appropriate binary-executable or grpc/ttrpc server for unwrapping the session key based on the protocol given in annotation for recipients and gets decrypted optsData,
     /// which describe the symmetric key used for decrypting the layer
     fn unwrap_keys(&self, dc_config: &DecryptConfig, json_string: &[u8]) -> Result<Vec<u8>> {
-        let mut protocol_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
+        let mut protocol_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: None, key_unwrap_results: None };
         let key_unwrap_params = KeyUnwrapParams { dc: Some(dc_config.clone()), annotation: Vec::from(json_string) };
         let input = KeyProviderKeyWrapProtocolInput {
             op: OP_KEY_UNWRAP.to_string(),
-            keywrapparams: None,
-            keyunwrapparams: Option::from(key_unwrap_params),
+            key_wrap_params: None,
+            key_unwrap_params: Option::from(key_unwrap_params),
         };
         let serialized_input = match bincode::serialize(&input) {
             Ok(x) => x,
@@ -164,12 +164,12 @@ impl KeyWrapper for KeyProviderKeyWrapper {
                 Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider error, error: {:?}", OP_KEY_UNWRAP.to_string(), e))
             };
         }
-        let key_unwrap_results = match protocol_output.keyunwrapresults {
+        let key_unwrap_results = match protocol_output.key_unwrap_results {
             Some(x) => x,
             None => return Err(anyhow!("keyprovider: {:?} on {:?} operation results are empty",self.provider,OP_KEY_UNWRAP.to_string()))
         };
 
-        Ok(key_unwrap_results.optsdata)
+        Ok(key_unwrap_results.opts_data)
     }
 
 
@@ -183,7 +183,7 @@ impl KeyWrapper for KeyProviderKeyWrapper {
 }
 
 async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String) -> Result<KeyProviderKeyWrapProtocolOutput> {
-    let mut protocol_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
+    let mut protocol_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: None, key_unwrap_results: None };
     let uri = conn.parse::<Uri>().unwrap();
     // create a channel ie connection to server
     let channel = match tonic::transport::Channel::builder(uri)
@@ -289,7 +289,7 @@ mod tests {
 
             let cipher = Aes256Gcm::new(Key::from_slice(unsafe { ENC_KEY }));
             let nonce = Nonce::from_slice(b"unique nonce");
-            let image_layer_sym_key: &[u8] = &keyp.keywrapparams.unwrap().optsdata;
+            let image_layer_sym_key: &[u8] = &keyp.key_wrap_params.unwrap().opts_data;
             let wrapped_key = cipher.encrypt(nonce, image_layer_sym_key).unwrap();
 
             let ap = AnnotationPacket {
@@ -300,7 +300,7 @@ mod tests {
 
             let serialized_ap = bincode::serialize(&ap).unwrap();
 
-            let key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: Option::from(KeyWrapResults { annotation: serialized_ap }), keyunwrapresults: None };
+            let key_wrap_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: Option::from(KeyWrapResults { annotation: serialized_ap }), key_unwrap_results: None };
             let serialized_key_wrap_output = bincode::serialize(&key_wrap_output).unwrap();
 
             Ok(tonic::Response::new(grpc_output { key_provider_key_wrap_protocol_output: serialized_key_wrap_output }))
@@ -308,7 +308,7 @@ mod tests {
 
         async fn un_wrap_key(&self, request: Request<grpc_input>) -> Result<tonic::Response<grpc_output>, tonic::Status> {
             let keyp: keyprovider::KeyProviderKeyWrapProtocolInput = bincode::deserialize(&request.into_inner().key_provider_key_wrap_protocol_input).unwrap();
-            let serialized_ap: &[u8] = &keyp.keyunwrapparams.unwrap().annotation;
+            let serialized_ap: &[u8] = &keyp.key_unwrap_params.unwrap().annotation;
             let ap: AnnotationPacket = bincode::deserialize(serialized_ap).unwrap();
 
             let cipher = Aes256Gcm::new(Key::from_slice(unsafe { DEC_KEY }));
@@ -318,7 +318,7 @@ mod tests {
                 .decrypt(nonce, wrapped_key.as_ref())
                 .expect("decryption failure!");
 
-            let key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: Option::from(KeyUnwrapResults { optsdata: unwrapped_key }) };
+            let key_wrap_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: None, key_unwrap_results: Option::from(KeyUnwrapResults { opts_data: unwrapped_key }) };
             let serialized_key_wrap_output = bincode::serialize(&key_wrap_output).unwrap();
 
             Ok(tonic::Response::new(grpc_output { key_provider_key_wrap_protocol_output: serialized_key_wrap_output }))
@@ -329,13 +329,13 @@ mod tests {
     impl CommandExecuter for TestRunner {
         /// Mock CommandExecuter for executing a linux command line command and return the output of the command with an error if it exists.
         fn exec(&self, cmd: String, _args: &Vec<String>, input: Vec<u8>) -> std::io::Result<Vec<u8>> {
-            let mut key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: None };
+            let mut key_wrap_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: None, key_unwrap_results: None };
             if cmd == "/usr/lib/keyprovider-wrapkey" {
                 let key_wrap_input: KeyProviderKeyWrapProtocolInput = bincode::deserialize(input.as_ref()).unwrap();
 
                 let cipher = Aes256Gcm::new(Key::from_slice(unsafe { ENC_KEY }));
                 let nonce = Nonce::from_slice(b"unique nonce");
-                let image_layer_sym_key: &[u8] = &key_wrap_input.keywrapparams.unwrap().optsdata;
+                let image_layer_sym_key: &[u8] = &key_wrap_input.key_wrap_params.unwrap().opts_data;
                 let wrapped_key = match cipher.encrypt(nonce, image_layer_sym_key) {
                     Ok(x) => x,
                     Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "encryption failure"))
@@ -348,10 +348,10 @@ mod tests {
                 };
 
                 let serialized_ap = bincode::serialize(&ap).unwrap();
-                key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: Option::from(KeyWrapResults { annotation: serialized_ap }), keyunwrapresults: None };
+                key_wrap_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: Option::from(KeyWrapResults { annotation: serialized_ap }), key_unwrap_results: None };
             } else if cmd == "/usr/lib/keyprovider-unwrapkey" {
                 let key_wrap_input: KeyProviderKeyWrapProtocolInput = bincode::deserialize(input.as_ref()).unwrap();
-                let ap_bytes: &[u8] = &key_wrap_input.keyunwrapparams.unwrap().annotation;
+                let ap_bytes: &[u8] = &key_wrap_input.key_unwrap_params.unwrap().annotation;
                 let ap: AnnotationPacket = bincode::deserialize(ap_bytes).unwrap();
 
                 let cipher_text = ap.wrapped_key;
@@ -363,7 +363,7 @@ mod tests {
                     Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "decryption failure"))
                 };
 
-                key_wrap_output = KeyProviderKeyWrapProtocolOutput { keywrapresults: None, keyunwrapresults: Option::from(KeyUnwrapResults { optsdata: image_layer_sym_key }) };
+                key_wrap_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: None, key_unwrap_results: Option::from(KeyUnwrapResults { opts_data: image_layer_sym_key }) };
             }
             let serialized_keywrap_output = bincode::serialize(&key_wrap_output).unwrap();
             Ok(serialized_keywrap_output)
