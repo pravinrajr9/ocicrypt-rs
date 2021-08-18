@@ -3,7 +3,7 @@
 
 use anyhow::{anyhow, Result};
 use crate::keywrap::KeyWrapper;
-use crate::utils::keyprovider as keyproviderpb;
+use crate::utils::grpc::keyprovider as keyproviderpb_grpc;
 use tonic;
 use std::collections::hash_map::RandomState;
 use crate::config::{DecryptConfig, EncryptConfig, KeyProviderAttrs, Command};
@@ -15,6 +15,11 @@ use tokio::runtime::Runtime;
 use core::option::Option;
 use core::fmt::Debug;
 use tonic::codegen::http::Uri;
+
+use utils::ttrpc::keyprovider_ttrpc as keyproviderpb_ttrpc;
+use utils::ttrpc::keyprovider as keyproviderpb_ttrpc_structs;
+use ttrpc::r#async::Client;
+use ttrpc::context::{self, Context};
 
 
 impl Debug for dyn CommandExecuter {
@@ -127,6 +132,12 @@ impl KeyWrapper for KeyProviderKeyWrapper {
                     Ok(v) => v,
                     Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider, error: {:?}",OP_KEY_WRAP.to_string(),e))
                 };
+            } else if self.attrs.ttrpc.as_ref().is_some() {
+                let rt = Runtime::new().unwrap().block_on(get_provider_ttrpc_output(serialized_input, self.attrs.grpc.as_ref().unwrap(), OP_KEY_WRAP.to_string()));
+                protocol_output = match rt {
+                    Ok(v) => v,
+                    Err(e) => return Err(anyhow!("Error while key provider {:?} operation, from grpc provider, error: {:?}",OP_KEY_WRAP.to_string(),e))
+                };
             }
         }
         let key_wrap_results = match protocol_output.key_wrap_results {
@@ -182,6 +193,47 @@ impl KeyWrapper for KeyProviderKeyWrapper {
     }
 }
 
+async fn get_provider_ttrpc_output(input: Vec<u8>, path: &String, operation: String) -> F {
+    let mut protocol_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: None, key_unwrap_results: None };
+    let fd = socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    ).unwrap();
+    let sockaddr = path.to_owned() + &"\x00".to_string();
+    let sockaddr = UnixAddr::new_abstract(sockaddr.as_bytes()).unwrap();
+    let sockaddr = SockAddr::Unix(sockaddr);
+    connect(fd, &sockaddr).unwrap();
+
+    let c = Client::new(fd);
+    let mut keyprovider_client = keyproviderpb_ttrpc::KeyProviderServiceClient::new(c);
+    let mut request = keyproviderpb_ttrpc_structs::keyProviderKeyWrapProtocolInput::new();
+    request.set_KeyProviderKeyWrapProtocolInput(input);
+    let mut ctx = context::with_timeout(0);
+    if operation == OP_KEY_WRAP {
+        let grpc_output = match keyprovider_client.wrap_key(ctx,&request).await {
+            Ok(resp) => resp,
+            Err(_) => return Err(anyhow!("Error from grpc request method on {:?} operation", OP_KEY_WRAP.to_string()))
+        };
+        protocol_output = match bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output) {
+            Ok(x) => x,
+            Err(_) => return Err(anyhow!("Error while deserializing grpc output on {:?} operation", OP_KEY_WRAP.to_string()))
+        }
+    }else if operation == OP_KEY_UNWRAP {
+        let grpc_output = match keyprovider_client.un_wrap_key(ctx,&request).await {
+            Ok(resp) => resp,
+            Err(_) => return Err(anyhow!("Error from grpc request method on {:?} operation", OP_KEY_UNWRAP.to_string()))
+        };
+        protocol_output = match bincode::deserialize(&grpc_output.into_inner().key_provider_key_wrap_protocol_output) {
+            Ok(x) => x,
+            Err(_) => return Err(anyhow!("Error while deserializing grpc output on {:?} operation", OP_KEY_UNWRAP.to_string()))
+        };
+    }
+    Ok(protocol_output)
+
+}
+
 async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String) -> Result<KeyProviderKeyWrapProtocolOutput> {
     let mut protocol_output = KeyProviderKeyWrapProtocolOutput { key_wrap_results: None, key_unwrap_results: None };
     let uri = conn.parse::<Uri>().unwrap();
@@ -192,8 +244,8 @@ async fn get_provider_grpc_output(input: Vec<u8>, conn: &str, operation: String)
         Ok(x) => x,
         Err(e) => return Err(anyhow!("Error while creating channel: {:?}",e))
     };
-    let mut client = keyproviderpb::key_provider_service_client::KeyProviderServiceClient::new(channel);
-    let request = tonic::Request::new(keyproviderpb::KeyProviderKeyWrapProtocolInput { key_provider_key_wrap_protocol_input: input });
+    let mut client = keyproviderpb_grpc::key_provider_service_client::KeyProviderServiceClient::new(channel);
+    let request = tonic::Request::new(keyproviderpb_grpc::KeyProviderKeyWrapProtocolInput { key_provider_key_wrap_protocol_input: input });
     if operation == OP_KEY_WRAP {
         let grpc_output = match client.wrap_key(request).await {
             Ok(resp) => resp,

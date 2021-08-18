@@ -33,6 +33,8 @@ pub struct KeyProviderAttrs {
     pub cmd: core::option::Option<Command>,
     #[serde(rename = "grpc")]
     pub grpc: core::option::Option<String>,
+    #[serde(rename = "ttrpc")]
+    pub ttrpc: core::option::Option<String>,
 }
 
 /// OcicryptConfig represents the format of an ocicrypt_provider.conf config file

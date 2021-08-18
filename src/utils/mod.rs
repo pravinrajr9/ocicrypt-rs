@@ -4,8 +4,11 @@
 #[cfg(feature = "utils-runner")]
 pub mod runner;
 
-#[cfg(feature = "utils-keyprovider")]
-pub mod keyprovider;
+#[cfg(feature = "utils-grpc")]
+pub mod grpc;
+
+#[cfg(feature = "utils-ttrpc")]
+pub mod ttrpc;
 
 /// CommandExecuter trait which requires implementation for command exec, first argument is the command name, like /usr/bin/<command-name>,
 /// the second is the list of args to pass to it
