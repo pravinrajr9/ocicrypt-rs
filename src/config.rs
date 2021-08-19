@@ -358,7 +358,7 @@ mod tests {
 
         let mut provider = HashMap::new();
         let args: Vec<String> = Vec::default();
-        let attrs = KeyProviderAttrs { cmd: Some(Command { path: "/usr/lib/keyprovider-wrapkey".to_string(), args: Some(args) }), grpc: None };
+        let attrs = KeyProviderAttrs { cmd: Some(Command { path: "/usr/lib/keyprovider-wrapkey".to_string(), args: Some(args) }), grpc: None, ttrpc: None };
         provider.insert(String::from("keyprovider"), attrs);
 
         assert!(get_keyprovider_config().is_ok());

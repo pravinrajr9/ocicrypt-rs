@@ -25,6 +25,8 @@ bincode = "1.2.1"
 tonic = ">=0.5.0"
 prost = "0.8.0"
 prost-types = "0.7.0"
+protobuf = "2.8.0"
+nix = "0.16.1"
 aes-gcm = "0.9.2"
 base64 = "0.13.0"
 tokio = { version = "1.9.0", features = ["full"]}
@@ -33,4 +35,4 @@ ttrpc = {version = "0.4.8", features = ["async"]}
 
 [build-dependencies]
 tonic-build = ">=0.5.1"
-ttrpc-codegen = ">=0.2"
+ttrpc-codegen = "0.1"
