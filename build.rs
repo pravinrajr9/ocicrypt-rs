@@ -17,10 +17,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .inputs(&protos)
         .include("src/utils")
         .rust_protobuf()
-        .customize(ttrpc_codegen::Customize{
-            async_all: true, // It's the key option.
-            ..Default::default()
-        })
       .run().expect("Gen code failed.");
 
     Ok(())

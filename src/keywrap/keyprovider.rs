@@ -19,7 +19,7 @@ use tonic::codegen::http::Uri;
 use nix::sys::socket::*;
 use utils::ttrpc::keyprovider_ttrpc as keyproviderpb_ttrpc;
 use utils::ttrpc::keyprovider as keyproviderpb_ttrpc_structs;
-use ttrpc::r#async::Client;
+use ttrpc::client::Client;
 use nix::Error;
 
 impl Debug for dyn CommandExecuter {
@@ -221,7 +221,7 @@ async fn get_provider_ttrpc_output(input: Vec<u8>, path: &String, operation: Str
     request.set_KeyProviderKeyWrapProtocolInput(input);
 
     if operation == OP_KEY_WRAP {
-        let grpc_output = match keyprovider_client.wrap_key(&request, 0).await {
+        let grpc_output = match keyprovider_client.wrap_key(&request, 0) {
             Ok(resp) => resp,
             Err(_) => return Err(anyhow!("Error from grpc request method on {:?} operation", OP_KEY_WRAP.to_string()))
         };
@@ -230,7 +230,7 @@ async fn get_provider_ttrpc_output(input: Vec<u8>, path: &String, operation: Str
             Err(_) => return Err(anyhow!("Error while deserializing grpc output on {:?} operation", OP_KEY_WRAP.to_string()))
         }
     } else if operation == OP_KEY_UNWRAP {
-        let grpc_output = match keyprovider_client.un_wrap_key(&request, 0).await {
+        let grpc_output = match keyprovider_client.un_wrap_key(&request, 0) {
             Ok(resp) => resp,
             Err(_) => return Err(anyhow!("Error from grpc request method on {:?} operation", OP_KEY_UNWRAP.to_string()))
         };
@@ -322,9 +322,10 @@ mod tests {
     use std::thread::sleep;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use ttrpc::asynchronous::server::{Server as TTRPCServer};
+    use ttrpc::server::{Server as TTRPCServer};
     use tokio::signal::unix::{signal, SignalKind};
     use async_trait::async_trait;
+    use std::thread;
 
     ///Test runner which mocks binary executable for key wrapping and unwrapping
     #[derive(Clone, Copy)]
@@ -394,7 +395,7 @@ mod tests {
 
     #[async_trait]
     impl KeyProviderServiceTTRPC for TestServer {
-        async fn wrap_key(&self, _ctx: &::ttrpc::r#async::TtrpcContext, req: keyprovider_ttprc_structs::keyProviderKeyWrapProtocolInput) -> ::ttrpc::Result<keyprovider_ttprc_structs::keyProviderKeyWrapProtocolOutput> {
+        fn wrap_key(&self, _ctx: &::ttrpc::TtrpcContext, req: keyprovider_ttprc_structs::keyProviderKeyWrapProtocolInput) -> ::ttrpc::Result<keyprovider_ttprc_structs::keyProviderKeyWrapProtocolOutput> {
             let keyp: keyprovider::KeyProviderKeyWrapProtocolInput = bincode::deserialize(req.get_KeyProviderKeyWrapProtocolInput()).unwrap();
 
             let cipher = Aes256Gcm::new(Key::from_slice(unsafe { ENC_KEY }));
@@ -418,7 +419,7 @@ mod tests {
             Ok(key_ttrpc_result)
         }
 
-        async fn un_wrap_key(&self, _ctx: &::ttrpc::r#async::TtrpcContext, req: keyprovider_ttprc_structs::keyProviderKeyWrapProtocolInput) -> ::ttrpc::Result<keyprovider_ttprc_structs::keyProviderKeyWrapProtocolOutput> {
+        fn un_wrap_key(&self, _ctx: &::ttrpc::TtrpcContext, req: keyprovider_ttprc_structs::keyProviderKeyWrapProtocolInput) -> ::ttrpc::Result<keyprovider_ttprc_structs::keyProviderKeyWrapProtocolOutput> {
             let keyp: keyprovider::KeyProviderKeyWrapProtocolInput = bincode::deserialize(req.get_KeyProviderKeyWrapProtocolInput()).unwrap();
             let serialized_ap: &[u8] = &keyp.key_unwrap_params.unwrap().annotation;
             let ap: AnnotationPacket = bincode::deserialize(serialized_ap).unwrap();
@@ -642,8 +643,7 @@ mod tests {
     }
 
     // Run a mock ttrpc server
-    #[tokio::main(worker_threads = 1)]
-    async fn start_ttrpc_server() {
+    fn start_ttrpc_server() {
         let k = Box::new(TestServer {}) as Box<dyn keyprovider_ttrpc::KeyProviderService + Send + Sync>;
         let k = Arc::new(k);
         let kp_service = keyprovider_ttrpc::create_key_provider_service(k);
@@ -653,9 +653,20 @@ mod tests {
             .unwrap()
             .register_service(kp_service);
 
-        let mut hangup = signal(SignalKind::hangup()).unwrap();
         let mut interrupt = signal(SignalKind::interrupt()).unwrap();
-        server.start().await.unwrap();
+        server.start().unwrap();
+
+        // Hold the main thread until receiving signal SIGTERM
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            ctrlc::set_handler(move || {
+                tx.send(()).unwrap();
+            })
+                .expect("Error setting Ctrl-C handler");
+            println!("Server is running, press Ctrl + C to exit");
+        });
+
+        rx.recv().unwrap();
     }
 
     #[test]

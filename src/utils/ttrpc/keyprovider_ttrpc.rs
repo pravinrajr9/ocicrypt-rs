@@ -20,28 +20,29 @@
 use protobuf::{CodedInputStream, CodedOutputStream, Message};
 use std::collections::HashMap;
 use std::sync::Arc;
-use async_trait::async_trait;
 
 #[derive(Clone)]
 pub struct KeyProviderServiceClient {
-    client: ::ttrpc::r#async::Client,
+    client: ::ttrpc::Client,
 }
 
 impl KeyProviderServiceClient {
-    pub fn new(client: ::ttrpc::r#async::Client) -> Self {
+    pub fn new(client: ::ttrpc::Client) -> Self {
         KeyProviderServiceClient {
             client: client,
         }
     }
 
-    pub async fn wrap_key(&mut self, req: &super::keyprovider::keyProviderKeyWrapProtocolInput, timeout_nano: i64) -> ::ttrpc::Result<super::keyprovider::keyProviderKeyWrapProtocolOutput> {
+    pub fn wrap_key(&self, req: &super::keyprovider::keyProviderKeyWrapProtocolInput, timeout_nano: i64) -> ::ttrpc::Result<super::keyprovider::keyProviderKeyWrapProtocolOutput> {
         let mut cres = super::keyprovider::keyProviderKeyWrapProtocolOutput::new();
-        ::ttrpc::async_client_request!(self, req, timeout_nano, "keyprovider.KeyProviderService", "WrapKey", cres);
+        ::ttrpc::client_request!(self, req, timeout_nano, "keyprovider.KeyProviderService", "WrapKey", cres);
+        Ok(cres)
     }
 
-    pub async fn un_wrap_key(&mut self, req: &super::keyprovider::keyProviderKeyWrapProtocolInput, timeout_nano: i64) -> ::ttrpc::Result<super::keyprovider::keyProviderKeyWrapProtocolOutput> {
+    pub fn un_wrap_key(&self, req: &super::keyprovider::keyProviderKeyWrapProtocolInput, timeout_nano: i64) -> ::ttrpc::Result<super::keyprovider::keyProviderKeyWrapProtocolOutput> {
         let mut cres = super::keyprovider::keyProviderKeyWrapProtocolOutput::new();
-        ::ttrpc::async_client_request!(self, req, timeout_nano, "keyprovider.KeyProviderService", "UnWrapKey", cres);
+        ::ttrpc::client_request!(self, req, timeout_nano, "keyprovider.KeyProviderService", "UnWrapKey", cres);
+        Ok(cres)
     }
 }
 
@@ -49,10 +50,10 @@ struct WrapKeyMethod {
     service: Arc<std::boxed::Box<dyn KeyProviderService + Send + Sync>>,
 }
 
-#[async_trait]
-impl ::ttrpc::r#async::MethodHandler for WrapKeyMethod {
-    async fn handler(&self, ctx: ::ttrpc::r#async::TtrpcContext, req: ::ttrpc::Request) -> ::ttrpc::Result<(u32, Vec<u8>)> {
-        ::ttrpc::async_request_handler!(self, ctx, req, keyprovider, keyProviderKeyWrapProtocolInput, wrap_key);
+impl ::ttrpc::MethodHandler for WrapKeyMethod {
+    fn handler(&self, ctx: ::ttrpc::TtrpcContext, req: ::ttrpc::Request) -> ::ttrpc::Result<()> {
+        ::ttrpc::request_handler!(self, ctx, req, keyprovider, keyProviderKeyWrapProtocolInput, wrap_key);
+        Ok(())
     }
 }
 
@@ -60,31 +61,30 @@ struct UnWrapKeyMethod {
     service: Arc<std::boxed::Box<dyn KeyProviderService + Send + Sync>>,
 }
 
-#[async_trait]
-impl ::ttrpc::r#async::MethodHandler for UnWrapKeyMethod {
-    async fn handler(&self, ctx: ::ttrpc::r#async::TtrpcContext, req: ::ttrpc::Request) -> ::ttrpc::Result<(u32, Vec<u8>)> {
-        ::ttrpc::async_request_handler!(self, ctx, req, keyprovider, keyProviderKeyWrapProtocolInput, un_wrap_key);
+impl ::ttrpc::MethodHandler for UnWrapKeyMethod {
+    fn handler(&self, ctx: ::ttrpc::TtrpcContext, req: ::ttrpc::Request) -> ::ttrpc::Result<()> {
+        ::ttrpc::request_handler!(self, ctx, req, keyprovider, keyProviderKeyWrapProtocolInput, un_wrap_key);
+        Ok(())
     }
 }
 
-#[async_trait]
-pub trait KeyProviderService: Sync {
-    async fn wrap_key(&self, _ctx: &::ttrpc::r#async::TtrpcContext, _req: super::keyprovider::keyProviderKeyWrapProtocolInput) -> ::ttrpc::Result<super::keyprovider::keyProviderKeyWrapProtocolOutput> {
+pub trait KeyProviderService {
+    fn wrap_key(&self, _ctx: &::ttrpc::TtrpcContext, _req: super::keyprovider::keyProviderKeyWrapProtocolInput) -> ::ttrpc::Result<super::keyprovider::keyProviderKeyWrapProtocolOutput> {
         Err(::ttrpc::Error::RpcStatus(::ttrpc::get_status(::ttrpc::Code::NOT_FOUND, "/keyprovider.KeyProviderService/WrapKey is not supported".to_string())))
     }
-    async fn un_wrap_key(&self, _ctx: &::ttrpc::r#async::TtrpcContext, _req: super::keyprovider::keyProviderKeyWrapProtocolInput) -> ::ttrpc::Result<super::keyprovider::keyProviderKeyWrapProtocolOutput> {
+    fn un_wrap_key(&self, _ctx: &::ttrpc::TtrpcContext, _req: super::keyprovider::keyProviderKeyWrapProtocolInput) -> ::ttrpc::Result<super::keyprovider::keyProviderKeyWrapProtocolOutput> {
         Err(::ttrpc::Error::RpcStatus(::ttrpc::get_status(::ttrpc::Code::NOT_FOUND, "/keyprovider.KeyProviderService/UnWrapKey is not supported".to_string())))
     }
 }
 
-pub fn create_key_provider_service(service: Arc<std::boxed::Box<dyn KeyProviderService + Send + Sync>>) -> HashMap <String, Box<dyn ::ttrpc::r#async::MethodHandler + Send + Sync>> {
+pub fn create_key_provider_service(service: Arc<std::boxed::Box<dyn KeyProviderService + Send + Sync>>) -> HashMap <String, Box<dyn ::ttrpc::MethodHandler + Send + Sync>> {
     let mut methods = HashMap::new();
 
     methods.insert("/keyprovider.KeyProviderService/WrapKey".to_string(),
-                    std::boxed::Box::new(WrapKeyMethod{service: service.clone()}) as std::boxed::Box<dyn ::ttrpc::r#async::MethodHandler + Send + Sync>);
+                    std::boxed::Box::new(WrapKeyMethod{service: service.clone()}) as std::boxed::Box<dyn ::ttrpc::MethodHandler + Send + Sync>);
 
     methods.insert("/keyprovider.KeyProviderService/UnWrapKey".to_string(),
-                    std::boxed::Box::new(UnWrapKeyMethod{service: service.clone()}) as std::boxed::Box<dyn ::ttrpc::r#async::MethodHandler + Send + Sync>);
+                    std::boxed::Box::new(UnWrapKeyMethod{service: service.clone()}) as std::boxed::Box<dyn ::ttrpc::MethodHandler + Send + Sync>);
 
     methods
 }
